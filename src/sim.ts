@@ -2,7 +2,8 @@
 import { mulberry32, type Rng } from "./rng.ts";
 import { BASE_GENOME, type Genome } from "./genome.ts";
 
-export const W = 64, H = 36;
+export const W = 120, H = 68;
+export const HEAD = 10;             // Плюша's head spans 10×10 cells
 export const TICK_HZ = 20;
 
 export const DIRS = [
@@ -12,8 +13,9 @@ export const DIRS = [
 
 export type Creature = {
   id: number;
-  x: number;
+  x: number;          // top-left cell of the head box
   y: number;
+  size: number;       // box edge in cells
   dir: number;
   t: number;          // ticks since the last step
   genome: Genome;
@@ -25,14 +27,15 @@ export type World = {
   creatures: Creature[];
 };
 
-export function createWorld(seed = 1, count = 12): World {
+export function createWorld(seed = 1, count = 1): World {
   const rng = mulberry32(seed);
   const world: World = { rng, tick: 0, creatures: [] };
   for (let i = 0; i < count; i++) {
     world.creatures.push({
       id: i,
-      x: (rng() * W) | 0,
-      y: (rng() * H) | 0,
+      x: (rng() * (W - HEAD + 1)) | 0,
+      y: (rng() * (H - HEAD + 1)) | 0,
+      size: HEAD,
       dir: (rng() * DIRS.length) | 0,
       t: (rng() * 4) | 0,
       genome: { ...BASE_GENOME },
@@ -51,7 +54,7 @@ export function stepWorld(world: World): void {
 
     const [dx, dy] = DIRS[c.dir];
     const nx = c.x + dx, ny = c.y + dy;
-    if (nx < 0 || ny < 0 || nx >= W || ny >= H) {   // wall: turn around instead of leaving the grid
+    if (nx < 0 || ny < 0 || nx + c.size > W || ny + c.size > H) {   // wall: turn around instead of leaving the grid
       c.dir = (c.dir + 4) % DIRS.length;
       continue;
     }
