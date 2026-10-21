@@ -1,5 +1,6 @@
 // Rendering only — reads the world, never mutates it.
-import { W, H, type Creature, type World } from "./sim.ts";
+import { W, H, SIZE } from "./config.ts";
+import type { Creature, Organic, World } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
 
 const BG = "#0d0f16";
@@ -11,7 +12,18 @@ export function draw(ctx: CanvasRenderingContext2D, world: World, vw: number, vh
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, vw, vh);
 
+  for (const o of world.organics) organic(ctx, o, ox, oy, s);
   for (const c of world.creatures) blob(ctx, c, ox, oy, s, world.tick);
+}
+
+function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number): void {
+  const cx = ox + o.x * s, cy = oy + o.y * s;
+  const r = SIZE * s * (0.14 + Math.min(o.amount, 40) * 0.014);
+
+  ctx.fillStyle = "rgba(120,220,150,0.35)";
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(170,240,180,0.75)";
+  ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill();
 }
 
 function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number, s: number, tick: number): void {

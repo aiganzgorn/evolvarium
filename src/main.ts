@@ -1,6 +1,7 @@
 // Browser entry point: canvas, resize, fixed-rate loop.
-import { createWorld, stepWorld, TICK_HZ } from "./sim.ts";
+import { createWorld, stepWorld } from "./sim.ts";
 import { draw } from "./render.ts";
+import { TICK_HZ } from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -10,6 +11,7 @@ const seedEl = document.getElementById("seed")!;
 const stateEl = document.getElementById("state")!;
 const hintEl = document.getElementById("hint")!;
 const energyEl = document.getElementById("energy")!;
+const orgEl = document.getElementById("org")!;
 
 const seed = Number(new URLSearchParams(location.search).get("seed")) || 1;
 const world = createWorld(seed);
@@ -52,8 +54,6 @@ addEventListener("keydown", (e) => {
 
 setPaused(true);
 
-const tickText = () => `тик ${world.tick}`;
-
 function frame(now: number): void {
   acc = paused ? 0 : acc + (now - last);
   last = now;
@@ -61,10 +61,11 @@ function frame(now: number): void {
   while (acc >= TICK_MS && guard++ < 5) { stepWorld(world); acc -= TICK_MS; }
 
   draw(ctx, world, innerWidth, innerHeight);
-  if (world.tick !== shownTick) { shownTick = world.tick; tickEl.textContent = tickText(); }
+  if (world.tick !== shownTick) { shownTick = world.tick; tickEl.textContent = `тик ${world.tick}`; }
 
   const p = world.creatures[0];
   nEl.textContent = String(world.creatures.length);
+  orgEl.textContent = String(world.organics.length);
   energyEl.textContent = p ? String(p.brain.energy) : "—";
   if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
 

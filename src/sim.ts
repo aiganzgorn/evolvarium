@@ -1,19 +1,16 @@
 // Pure simulation core — NO DOM, NO canvas, runs headless in Node.
 // The world is plain coordinates in abstract units (one 1440×900 screen). No cells.
 import { mulberry32, type Rng } from "./rng.ts";
-import { BASE_GENOME, type Genome } from "./genome.ts";
+import type { Genome } from "./genome.ts";
+import {
+  W, H, SIZE, MEM_CELLS, START_ENERGY, JUMP_COST, ORG_BASE, BASE_GENOME,
+} from "./config.ts";
 
-export const W = 1440, H = 900;
-export const SIZE = 40;             // Плюша's diameter in world units (~40 px on a 1440×900 screen)
-export const TICK_HZ = 20;
-
-// --- brain -------------------------------------------------------------------
-// One tick reads one memory cell. Cells hold plain numbers; the number IS the op.
-export const MEM_CELLS = 60;
-export const START_ENERGY = 20;
+// --- brain language ----------------------------------------------------------
+// One tick reads one memory cell. The number in the cell IS the op.
 export const OP_REST = 0;           // "save energy": does nothing, costs nothing
-export const OP_JUMP = 1;           // "go to cell N": N defaults to 0 (the first cell), costs 1
-export const ENERGY_COST: Record<number, number> = { [OP_REST]: 0, [OP_JUMP]: 1 };
+export const OP_JUMP = 1;           // "go to cell N": N defaults to 0 (the first cell)
+export const ENERGY_COST: Record<number, number> = { [OP_REST]: 0, [OP_JUMP]: JUMP_COST };
 
 export type Brain = {
   mem: number[];
@@ -31,21 +28,28 @@ export type Creature = {
   mutations: string[];  // traits the brain will drive once there are ops for them
 };
 
+export type Organic = {
+  x: number;          // where the body fell
+  y: number;
+  amount: number;
+};
+
 export type World = {
   rng: Rng;
   tick: number;
   creatures: Creature[];
+  organics: Organic[];
 };
 
 function createBrain(): Brain {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
-  mem[MEM_CELLS - 1] = OP_JUMP;     // full pass through memory costs 1 energy, then loop
+  mem[MEM_CELLS - 1] = OP_JUMP;     // a full pass through memory costs one jump
   return { mem, pc: 0, energy: START_ENERGY };
 }
 
 export function createWorld(seed = 1, count = 1): World {
   const rng = mulberry32(seed);
-  const world: World = { rng, tick: 0, creatures: [] };
+  const world: World = { rng, tick: 0, creatures: [], organics: [] };
   for (let i = 0; i < count; i++) {
     world.creatures.push({
       id: i,
@@ -71,5 +75,9 @@ export function stepWorld(world: World): void {
     else b.pc = (b.pc + 1) % MEM_CELLS;
   }
 
+  for (const c of world.creatures) {
+    if (c.brain.energy > 0) continue;
+    world.organics.push({ x: c.x, y: c.y, amount: ORG_BASE + Math.max(0, c.brain.energy) });
+  }
   world.creatures = world.creatures.filter(c => c.brain.energy > 0);
 }
