@@ -7,6 +7,7 @@ import { photosynthesis, leg } from "./mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, LIGHT, ORG_BASE, BASE_GENOME,
+  LIGHT_MIN, LIGHT_MAX, LIGHT_PERIOD, LIGHT_BAND, LEG_MIN, LEG_MAX,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
@@ -83,21 +84,29 @@ export type World = {
   organics: Organic[];
 };
 
-// A hand-written walker: fuel, then one step — hook, swing, let go, swing back.
-// The swings cancel, so the body stays upright; the step repeats every 29 ticks.
+// A hand-written two-legged walker: fuel, then a full step on each leg.
+// While a leg holds the ground its turn swings the body; while it is free the
+// same turn swings only the leg. Two turns of each kind bring both back, so the
+// pair of legs stays symmetric and the body keeps its heading.
 export function demoMemory(): number[] {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
   let i = 0;
-  for (let k = 0; k < 20; k++) mem[i++] = useCell(0);           // photosynthesis
-  mem[i++] = useCell(1, [3]);                                   // 03 grab the ground
-  mem[i++] = useCell(1, [2, 48]);                               // 02 turn right 48°
-  mem[i++] = useCell(1, [4]);                                   // 04 let go
-  mem[i++] = useCell(1, [1, 48]);                               // 01 swing the leg back
-  mem[i++] = useCell(1, [3]);                                   // 03 grab again
-  mem[i++] = useCell(1, [1, 48]);                               // body swings the other way
-  mem[i++] = useCell(1, [4]);                                   // 04 let go
-  mem[i++] = useCell(1, [2, 48]);                               // re-aim the leg
-  mem[i] = jumpCell(0);                                         // and start over
+  for (let k = 0; k < 40; k++) mem[i++] = useCell(0);           // photosynthesis
+
+  const turn = (which: number, dir: 1 | 2, deg: number) => { mem[i++] = useCell(which, [dir, deg]); };
+  const cycle = (which: number, dir: 1 | 2, other: 1 | 2, deg: number) => {
+    mem[i++] = useCell(which, [3]);                              // 03 grab the ground
+    turn(which, dir, deg);                                       // body swings
+    mem[i++] = useCell(which, [4]);                              // 04 let go
+    turn(which, other, deg);                                     // leg swings back
+    mem[i++] = useCell(which, [3]);                              // grab again
+    turn(which, other, deg);                                     // body swings back
+    mem[i++] = useCell(which, [4]);                              // let go
+    turn(which, dir, deg);                                       // and the leg comes home
+  };
+  cycle(1, 2, 1, 40);                                            // left leg
+  cycle(2, 1, 2, 40);                                            // right leg, the other way
+  mem[i] = jumpCell(0);                                          // and start over
   return mem;
 }
 
@@ -109,14 +118,25 @@ export function randomMemory(rng: Rng): number[] {
     if (r < 0.55) mem[i] = OP_REST;
     else if (r < 0.75) mem[i] = useCell(0);                                  // photosynthesis
     else if (r < 0.95) {
-      const action = 1 + Math.floor(rng() * 4);                              // leg: 01..04
+      const which = 1 + Math.floor(rng() * 2);                               // leg 01 or 02
+      const action = 1 + Math.floor(rng() * 4);                              // 01..04
       const degrees = 3 + Math.floor(rng() * 12);
-      mem[i] = useCell(1, [action, degrees]);
+      mem[i] = useCell(which, [action, degrees]);
     } else mem[i] = jumpCell(Math.floor(rng() * MEM_CELLS));                  // jump anywhere
   }
   mem[MEM_CELLS - 1] = jumpCell(0);                        // always come back around
   for (let i = 0; i < 3; i++) mem[i] = useCell(0);         // a bit of fuel to start with
   return mem;
+}
+
+// Legs: born at a length drawn from the seed, and that is what gets inherited.
+function bornLegs(rng: Rng): Mutation[] {
+  const legs = [leg(-1), leg(1)];
+  for (const m of legs) {
+    const t = rng();
+    m.leg!.length = Math.round(LEG_MIN + t * (LEG_MAX - LEG_MIN));
+  }
+  return legs;
 }
 
 export function createWorld(seed = 1, count = 1): World {
@@ -133,7 +153,7 @@ export function createWorld(seed = 1, count = 1): World {
       size: SIZE,
       genome: { ...BASE_GENOME },
       brain: { mem: randomMemory(rng), pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } },
-      mutations: [photosynthesis(), leg()],
+      mutations: [photosynthesis(), ...bornLegs(rng)],
     });
   }
   return world;
@@ -152,6 +172,23 @@ function flush(b: Brain): void {
   b.energy += moved;
   b.packet.energy = Math.min(PACKET_MAX, b.packet.energy - moved);
   if (moved > 0) b.packet.last = null;
+}
+
+// --- world helpers -----------------------------------------------------------
+// The bright band's centre in world units; it sweeps left to right and wraps.
+export function lightCenter(world: World): number {
+  const band = W * LIGHT_BAND;
+  const travel = W + band;
+  const phase = (world.tick % LIGHT_PERIOD) / LIGHT_PERIOD;
+  return ((phase * travel + W / 2 + band / 2) % travel) - band / 2;
+}
+
+// Local light under (x): brightest in the middle of the band, base level outside.
+export function lightAt(world: World, x: number): number {
+  const band = W * LIGHT_BAND;
+  const d = Math.min(1, Math.abs(x - lightCenter(world)) / (band / 2));
+  const glow = 0.5 * (1 + Math.cos(Math.PI * d));    // 1 in the middle, 0 at the edge
+  return Math.max(0, Math.min(1, LIGHT * (LIGHT_MIN + (LIGHT_MAX - LIGHT_MIN) * glow)));
 }
 
 // --- snapshots ---------------------------------------------------------------
@@ -216,7 +253,7 @@ export function stepWorld(world: World): void {
       const index = mutationOf(cell);
       const m = c.mutations[index];
       const result = m
-        ? m.act({ self: c, world, light: world.light, params: paramsOf(cell), packet: b.packet })
+        ? m.act({ self: c, world, light: lightAt(world, c.x), params: paramsOf(cell), packet: b.packet })
         : 0;
       b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
       b.packet.last = { label: m ? m.label : `мутации ${index} нет`, amount: result };

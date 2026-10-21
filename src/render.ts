@@ -1,7 +1,7 @@
 // Rendering only — reads the world, never mutates it.
-import { W, H, SIZE } from "./config.ts";
+import { W, H, SIZE, LIGHT, LIGHT_BAND, LIGHT_PERIOD } from "./config.ts";
 import type { Creature, Organic, World } from "./sim.ts";
-import { opOf } from "./sim.ts";
+import { lightCenter } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
 import { attachPoint, legTip, type LegState } from "./mutations.ts";
 
@@ -20,18 +20,30 @@ export function draw(
 
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, vw, vh);
-  light(ctx, world.light, vw, vh);
+  light(ctx, world, vw, vh, ox, s);
 
   for (const o of world.organics) organic(ctx, o, ox, oy, s);
   for (const c of world.creatures) blob(ctx, c, ox, oy, s, world.tick, c.id === selected);
 }
 
-// Global light falls from above: brighter at the top, gone at the bottom.
-function light(ctx: CanvasRenderingContext2D, value: number, vw: number, vh: number): void {
-  const g = ctx.createLinearGradient(0, 0, 0, vh);
-  g.addColorStop(0, `rgba(255,240,190,${(0.12 * value).toFixed(3)})`);
+// The moving light band: a soft vertical wash that sweeps left to right.
+function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number, ox: number, s: number): void {
+  const band = W * LIGHT_BAND;
+  const centre = ox + lightCenter(world) * s;
+  const half = (band / 2) * s;
+
+  const g = ctx.createLinearGradient(centre - half, 0, centre + half, 0);
+  g.addColorStop(0, "rgba(255,240,190,0)");
+  g.addColorStop(0.5, `rgba(255,240,190,${(0.34 * LIGHT).toFixed(3)})`);
   g.addColorStop(1, "rgba(255,240,190,0)");
   ctx.fillStyle = g;
+  ctx.fillRect(0, 0, vw, vh);
+
+  // a faint top-down wash so the top of the screen reads as sky
+  const top = ctx.createLinearGradient(0, 0, 0, vh);
+  top.addColorStop(0, `rgba(255,240,190,${(0.07 * LIGHT).toFixed(3)})`);
+  top.addColorStop(1, "rgba(255,240,190,0)");
+  ctx.fillStyle = top;
   ctx.fillRect(0, 0, vw, vh);
 }
 
@@ -76,7 +88,7 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
 
 // A rigid stick from the hinge to the tip; a filled foot means it holds the ground.
 function drawLeg(ctx: CanvasRenderingContext2D, c: Creature, leg: LegState, ox: number, oy: number, s: number): void {
-  const a = attachPoint(c), t = legTip(c, leg);
+  const a = attachPoint(c, leg.attach), t = legTip(c, leg);
   const ax = ox + a.x * s, ay = oy + a.y * s;
   const tx = ox + t.x * s, ty = oy + t.y * s;
   const r = (c.size * s) / 2;

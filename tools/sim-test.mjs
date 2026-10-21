@@ -1,7 +1,7 @@
 // Headless self-check of the pure simulation core.
 import assert from "node:assert/strict";
 import {
-  createWorld, stepWorld, snapshot, restore, demoMemory, randomMemory,
+  createWorld, stepWorld, snapshot, restore, demoMemory, randomMemory, lightAt, lightCenter,
   opOf, mutationOf, paramsOf, jumpTarget, jumpCell, useCell,
   OP_REST, OP_JUMP, OP_USE,
 } from "../src/sim.ts";
@@ -9,7 +9,7 @@ import { mulberry32 } from "../src/rng.ts";
 import { attachPoint, legTip } from "../src/mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT, ORG_BASE,
-  LEG_LENGTH, LEG_STEP_DEG,
+  LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
 } from "../src/config.ts";
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
@@ -54,7 +54,7 @@ assert.equal(p.brain.mem.length, MEM_CELLS, "память на 60 ячеек");
 assert.equal(p.brain.energy, START_ENERGY, "энергия на старте");
 assert.equal(p.brain.packet.energy, 0, "пакет пуст");
 assert.equal(a.light, LIGHT, "глобальный свет");
-assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg"], "две мутации");
+assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg", "leg"], "фотосинтез и две ножки");
 
 // --- the starting memory comes from the seed ---------------------------------
 const seedA = createWorld(7), seedB = createWorld(7), seedC = createWorld(8);
@@ -82,7 +82,7 @@ const doIt = (params) => legMut.act({ self: c, world: lw, light: lw.light, param
 const leg = legMut.leg;
 
 assert.ok(leg && !leg.grabbed, "ножка есть и землю не держит");
-assert.equal(leg.length, LEG_LENGTH, "длина задана при рождении");
+assert.ok(leg.length >= LEG_MIN && leg.length <= LEG_MAX, "длина задана при рождении, в пределах тела");
 assert.equal(leg.angle, 0, "стартовый угол");
 
 doIt([2, 20]);                                           // turn right by 20°
@@ -98,7 +98,7 @@ const tipBefore = legTip(c, leg);
 doIt([3]);                                               // grab
 assert.ok(leg.grabbed, "03 — земля схвачена");
 assert.deepEqual([leg.x, leg.y], [tipBefore.x, tipBefore.y], "точка захвата — кончик ножки");
-assert.ok(near(Math.hypot(leg.x - attachPoint(c).x, leg.y - attachPoint(c).y), LEG_LENGTH), "ножка не растянулась");
+assert.ok(near(Math.hypot(leg.x - attachPoint(c, leg.attach).x, leg.y - attachPoint(c, leg.attach).y), leg.length), "ножка не растянулась");
 
 const anchor = { x: leg.x, y: leg.y };
 const before = { x: c.x, y: c.y, angle: c.angle };
@@ -116,10 +116,10 @@ assert.ok(near(c.x, freeBefore.x) && near(c.y, freeBefore.y), "без захва
 // length belongs to the mutation, not to the world
 leg.length = 140;
 const t3 = legTip(c, leg);
-assert.ok(near(Math.hypot(t3.x - attachPoint(c).x, t3.y - attachPoint(c).y), 140), "длинная ножка достаёт дальше");
+assert.ok(near(Math.hypot(t3.x - attachPoint(c, leg.attach).x, t3.y - attachPoint(c, leg.attach).y), LEG_MAX), "длинная ножка упирается в предел LEG_MAX");
 leg.length = 20;
 const t4 = legTip(c, leg);
-assert.ok(near(Math.hypot(t4.x - attachPoint(c).x, t4.y - attachPoint(c).y), 20), "короткая — ближе");
+assert.ok(near(Math.hypot(t4.x - attachPoint(c, leg.attach).x, t4.y - attachPoint(c, leg.attach).y), 20), "короткая — ближе");
 
 // --- the demo program walks: swings cancel, the body stays upright -----------
 for (const seed of [1, 7, 42]) {
@@ -138,14 +138,28 @@ for (const seed of [1, 7, 42]) {
   assert.ok(Math.abs(last.angle) <= deg(49), `seed ${seed}: тело не кувыркается, курс в пределах ±48° (${(last.angle * 180 / Math.PI).toFixed(0)}°)`);
 }
 
+// --- light: a band moves, and photosynthesis reads light where she stands -----
+const bandAt = (tick, x) => lightAt({ tick }, x);
+assert.ok(near(lightCenter({ tick: 0 }), W / 2), "в начале полоса по центру");
+assert.ok(lightCenter({ tick: 60 }) > W / 2, "полоса едет вправо");
+assert.ok(bandAt(0, W / 2) > bandAt(0, 0), "в центре светлее, чем у левого края");
+assert.ok(near(bandAt(0, 700), bandAt(LIGHT_PERIOD, 700)), "через период свет повторяется");
+for (let t = 0; t < LIGHT_PERIOD; t++) {
+  const v = bandAt(t, W / 3);
+  assert.ok(v > 0 && v <= 1, `свет ${v} в диапазоне 0..1`);
+}
+
 // --- costs, death, organic, and the world stops -------------------------------
 const w = createWorld(1);
 const mem = w.creatures[0].brain.mem;
 mem.fill(OP_REST);
 mem[0] = useCell(0); mem[1] = useCell(0);                // two calls of photosynthesis
 mem[MEM_CELLS - 1] = jumpCell(0);
+const x0 = w.creatures[0].x;
 for (let i = 0; i < MEM_CELLS; i++) stepWorld(w);
-assert.equal(w.creatures[0].brain.energy, START_ENERGY, "два фотосинтеза (+3) и прыжок (−2−1) = 0");
+const expected = START_ENERGY - 3 + 2 * bandAt(1, x0) + 2 * bandAt(2, x0);
+assert.ok(near(w.creatures[0].brain.energy, expected, 1e-9),
+  `два фотосинтеза и прыжок: ${w.creatures[0].brain.energy} вместо ${expected}`);
 assert.equal(w.creatures[0].brain.packet.energy, 0, "пакет опустошён на переходе");
 
 const unknown = createWorld(1);
@@ -170,6 +184,44 @@ const frozen = dying.tick;
 for (let i = 0; i < 50; i++) stepWorld(dying);
 assert.equal(dying.tick, frozen, "без живых тик стоит");
 assert.equal(dying.organics.length, 1, "органика не копится");
+
+// --- two legs: mirrored hinges, one foot on the ground at a time ---------------
+const tl = createWorld(5);
+const tc = tl.creatures[0];
+assert.deepEqual(tc.mutations.map(m => m.id), ["photosynthesis", "leg", "leg"], "две ножки");
+const [left, right] = [tc.mutations[1], tc.mutations[2]];
+assert.ok(left.leg.attach < right.leg.attach, "петли зеркальные");
+for (const m of [left, right]) {
+  assert.ok(m.leg.length >= LEG_MIN && m.leg.length <= LEG_MAX,
+    `длина ${m.leg.length} в пределах ${LEG_MIN}..${LEG_MAX}`);
+}
+const fire = (m, params, self = tc, world = tl) => m.act({ self, world, light: 0.8, params, packet: { energy: 0, last: null } });
+fire(left, [3]);
+assert.ok(left.leg.grabbed && !right.leg.grabbed, "левая схватила");
+fire(right, [3]);
+assert.ok(right.leg.grabbed && !left.leg.grabbed, "правая схватила — левая отпустила сама");
+
+// a leg is never longer than twice the body, whatever the state says
+left.leg.length = 999;
+const longTip = legTip(tc, left.leg);
+const hinge = attachPoint(tc, left.leg.attach);
+assert.ok(near(Math.hypot(longTip.x - hinge.x, longTip.y - hinge.y), LEG_MAX), "длина ограничена двумя телами");
+
+// --- the world edges hold: the leg cannot reach out, the body cannot be dragged out
+const edge = createWorld(1);
+const ec = edge.creatures[0];
+ec.x = W - ec.size / 2 - 1;                              // one pixel from the right wall
+const el = ec.mutations[1];
+const eDo = (params) => el.act({ self: ec, world: edge, light: 0.8, params, packet: { energy: 0, last: null } });
+
+for (let i = 0; i < 40; i++) eDo([2, 40]);              // keep turning right: the tip hits the wall
+const tip = legTip(ec, el.leg);
+assert.ok(tip.x <= W && tip.y >= 0 && tip.y <= H, `кончик внутри мира (${tip.x.toFixed(1)}, ${tip.y.toFixed(1)})`);
+
+eDo([3]);                                                // grab
+for (let i = 0; i < 40; i++) eDo([2, 40]);               // and try to drag the body out
+assert.ok(ec.x <= W - ec.size / 2 + 1e-9, `тело не вышло за правый край (${ec.x.toFixed(1)})`);
+assert.ok(ec.x >= ec.size / 2 - 1e-9 && ec.y >= ec.size / 2 - 1e-9 && ec.y <= H - ec.size / 2 + 1e-9, "и не вышло за остальные");
 
 // --- determinism -------------------------------------------------------------
 const x = createWorld(42), y = createWorld(42);

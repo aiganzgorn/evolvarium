@@ -1,12 +1,12 @@
 // Browser entry point: canvas, resize, fixed-rate loop, the click-to-peek panel.
 import {
   createWorld, stepWorld, snapshot, restore, opOf, mutationOf, paramsOf, jumpTarget,
-  jumpCell, useCell, demoMemory, randomMemory, OP_REST,
+  jumpCell, useCell, demoMemory, randomMemory, lightAt, OP_REST,
   type Creature, type Snapshot,
 } from "./sim.ts";
 import { mulberry32 } from "./rng.ts";
 import { draw, viewTransform } from "./render.ts";
-import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS } from "./config.ts";
+import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W } from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -294,6 +294,7 @@ function frame(now: number): void {
   energyEl.textContent = p ? fmt(p.brain.energy) : "—";
   packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
   histEl.textContent = String(history.length);
+  lightEl.textContent = `${Math.round(lightAt(world, p ? p.x : W / 2) * 100)}%`;
   if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
 
   requestAnimationFrame(frame);
