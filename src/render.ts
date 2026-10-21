@@ -1,7 +1,9 @@
 // Rendering only — reads the world, never mutates it.
 import { W, H, SIZE } from "./config.ts";
 import type { Creature, Organic, World } from "./sim.ts";
+import { opOf } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
+import { attachPoint, legTip, type LegState } from "./mutations.ts";
 
 const BG = "#0d0f16";
 
@@ -49,6 +51,8 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
   const r = (c.size * s) / 2 * 0.92;
   const breath = 1 + Math.sin(tick * 0.22 + c.id) * 0.025;   // she breathes
 
+  for (const m of c.mutations) if (m.leg) drawLeg(ctx, c, m.leg, ox, oy, s);
+
   ctx.fillStyle = genomeColor(c.genome);
   ctx.beginPath(); ctx.ellipse(cx, cy, r, r * breath, 0, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = "rgba(5,8,14,0.35)";
@@ -63,10 +67,39 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
     ctx.fill();
   }
 
-  for (const m of c.mutations) drawMutation(ctx, m.id, cx, cy, r, tick);
+  for (const m of c.mutations) drawMutation(ctx, m.id, cx, cy, r, tick, c.angle);
 
   const tagBottom = nameTag(ctx, "Плюша", cx, cy + r + Math.max(6, r * 0.14), r);
   if (selected) selectionFrame(ctx, cx, cy, r, tagBottom);
+}
+
+// A rigid stick from the hinge to the tip; a filled foot means it holds the ground.
+function drawLeg(ctx: CanvasRenderingContext2D, c: Creature, leg: LegState, ox: number, oy: number, s: number): void {
+  const a = attachPoint(c), t = legTip(c, leg);
+  const ax = ox + a.x * s, ay = oy + a.y * s;
+  const tx = ox + t.x * s, ty = oy + t.y * s;
+  const r = (c.size * s) / 2;
+  const width = Math.max(2, r * 0.22);
+
+  ctx.strokeStyle = "rgba(8,12,20,0.55)";
+  ctx.lineWidth = width + 2;
+  ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(tx, ty); ctx.stroke();
+
+  ctx.strokeStyle = "#8fb8ff";
+  ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.lineCap = "butt";
+
+  const foot = Math.max(2.5, r * 0.17);
+  if (leg.grabbed) {
+    ctx.fillStyle = "#ffd76e";
+    ctx.beginPath(); ctx.arc(tx, ty, foot, 0, Math.PI * 2); ctx.fill();
+  } else {
+    ctx.strokeStyle = "rgba(255,215,110,0.7)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(tx, ty, foot, 0, Math.PI * 2); ctx.stroke();
+  }
 }
 
 // A thin frame around the whole creature — the body, the sprout and the label.
@@ -85,22 +118,26 @@ function selectionFrame(ctx: CanvasRenderingContext2D, cx: number, cy: number, r
 }
 
 // Every mutation must be visible. A new one gets its own case here.
-function drawMutation(ctx: CanvasRenderingContext2D, id: string, cx: number, cy: number, r: number, tick: number): void {
+function drawMutation(ctx: CanvasRenderingContext2D, id: string, cx: number, cy: number, r: number, tick: number, angle: number): void {
   switch (id) {
     case "photosynthesis": {
       const sway = Math.sin(tick * 0.08) * 0.1;     // the sprout leans in the "wind"
-      const baseY = cy - r * 0.84;                  // top of the head
-      const tipY = cy - r * 1.34;                   // stem tip
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);                            // the sprout marks which way the body faces
+      const baseY = -r * 0.84;                      // top of the head
+      const tipY = -r * 1.34;                       // stem tip
       ctx.strokeStyle = "#5fb96f";
       ctx.lineWidth = Math.max(1, r * 0.07);
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(cx, baseY);
-      ctx.quadraticCurveTo(cx + r * 0.1, (baseY + tipY) / 2, cx, tipY);
+      ctx.moveTo(0, baseY);
+      ctx.quadraticCurveTo(r * 0.1, (baseY + tipY) / 2, 0, tipY);
       ctx.stroke();
       ctx.lineCap = "butt";
-      leaf(ctx, cx, tipY, r * 0.52, -0.55 + sway);
-      leaf(ctx, cx, tipY, r * 0.52, Math.PI + 0.55 - sway);
+      leaf(ctx, 0, tipY, r * 0.52, -0.55 + sway);
+      leaf(ctx, 0, tipY, r * 0.52, Math.PI + 0.55 - sway);
+      ctx.restore();
       break;
     }
   }

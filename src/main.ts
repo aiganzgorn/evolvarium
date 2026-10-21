@@ -1,5 +1,5 @@
 // Browser entry point: canvas, resize, fixed-rate loop, the click-to-peek panel.
-import { createWorld, stepWorld, snapshot, restore, opOf, type Creature, type Snapshot } from "./sim.ts";
+import { createWorld, stepWorld, snapshot, restore, opOf, useCell, type Creature, type Snapshot } from "./sim.ts";
 import { draw, viewTransform } from "./render.ts";
 import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS } from "./config.ts";
 
@@ -56,18 +56,27 @@ function fillMutations(p: Creature): void {
     return;
   }
   p.mutations.forEach((m, i) => {
-    const row = document.createElement("div");
-    row.className = "mut";
+    const head = document.createElement("div");
+    head.className = "mut";
     const idx = document.createElement("span");
     idx.className = "idx";
     idx.textContent = String(i);
     const name = document.createElement("b");
     name.textContent = m.label;
-    const cmd = document.createElement("span");
-    cmd.className = "cmd";
-    cmd.textContent = `  команда ${2 + i * 10}`;
-    row.append(idx, name, cmd);
-    pMut.append(row);
+    head.append(idx, name);
+    pMut.append(head);
+
+    for (const a of m.actions) {
+      const row = document.createElement("div");
+      row.className = "mut act";
+      const cell = document.createElement("span");
+      cell.className = "cellnum";
+      cell.textContent = String(useCell(i, a.action));
+      const label = document.createElement("span");
+      label.textContent = ` ${a.label}`;
+      row.append(cell, label);
+      pMut.append(row);
+    }
   });
 }
 

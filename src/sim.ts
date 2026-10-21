@@ -3,15 +3,16 @@
 import { mulberry32, type Rng } from "./rng.ts";
 import type { Genome } from "./genome.ts";
 import type { Mutation } from "./mutations.ts";
-import { PHOTOSYNTHESIS } from "./mutations.ts";
+import { photosynthesis, leg } from "./mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, LIGHT, ORG_BASE, BASE_GENOME,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
-// A memory cell is one number: the last digit is the op, the rest is its argument.
-//   0 = rest (costs nothing), 1 = jump to cell <arg>, 2 = use mutation <arg>.
+// A memory cell is one number: the last digit is the op, the rest is the argument.
+//   0 = rest (costs nothing), 1 = jump to cell <arg>,
+//   2 = use mutation <arg % 10>, action <floor(arg / 10)>.
 export const OP_REST = 0;
 export const OP_JUMP = 1;
 export const OP_USE = 2;
@@ -21,6 +22,11 @@ export const ENERGY_COST: Record<number, number> = {
 
 export const opOf = (cell: number): number => cell % 10;
 export const argOf = (cell: number): number => Math.floor(cell / 10);
+export const mutationOf = (arg: number): number => arg % 10;
+export const actionOf = (arg: number): number => Math.floor(arg / 10);
+
+// Builds the number that lives in a cell: "use mutation <i>, action <a>".
+export const useCell = (i: number, a = 0): number => OP_USE + (i + a * 10) * 10;
 
 export type Brain = {
   mem: number[];
@@ -36,6 +42,7 @@ export type Creature = {
   id: number;
   x: number;          // center
   y: number;
+  angle: number;      // body orientation, radians (the leg turns the body)
   size: number;       // diameter
   genome: Genome;
   brain: Brain;
@@ -58,11 +65,12 @@ export type World = {
 
 function createBrain(): Brain {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
-  mem[0] = OP_USE;                  // photosynthesis (mutation 0) four times per pass
-  mem[1] = OP_USE;
-  mem[2] = OP_USE;
-  mem[3] = OP_USE;
-  mem[MEM_CELLS - 1] = OP_JUMP;     // back to the first cell
+  // mutation 0 = photosynthesis, mutation 1 = leg
+  for (let i = 0; i < 10; i++) mem[i] = useCell(0);      // charge up first
+  mem[10] = useCell(1, 2);                              // leg: grab the ground
+  for (let i = 11; i <= 14; i++) mem[i] = useCell(1, 0); // leg: four turns -> the body swings
+  mem[15] = useCell(1, 3);                              // leg: let go
+  mem[MEM_CELLS - 1] = OP_JUMP;                         // back to the first cell
   return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } };
 }
 
@@ -76,10 +84,11 @@ export function createWorld(seed = 1, count = 1): World {
       id: i,
       x: W / 2,
       y: H / 2,
+      angle: 0,
       size: SIZE,
       genome: { ...BASE_GENOME },
       brain: createBrain(),
-      mutations: [PHOTOSYNTHESIS],
+      mutations: [photosynthesis(), leg()],
     });
   }
   return world;
@@ -139,7 +148,7 @@ function copyCreature(c: Creature): Creature {
         last: c.brain.packet.last ? { ...c.brain.packet.last } : null,
       },
     },
-    mutations: c.mutations.slice(),   // definitions are shared, not copied
+    mutations: c.mutations.map(m => (m.leg ? { ...m, leg: { ...m.leg } } : m)),  // defs shared, state copied
   };
 }
 
@@ -159,10 +168,11 @@ export function stepWorld(world: World): void {
       next = arg % MEM_CELLS;
     } else if (op === OP_USE) {
       pay(b, USE_COST);
-      const m = c.mutations[arg];
-      const result = m ? m.act({ self: c, world, light: world.light }) : 0;
+      const m = c.mutations[mutationOf(arg)];
+      const act = actionOf(arg);
+      const result = m ? m.act({ self: c, world, light: world.light, action: act }) : 0;
       b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
-      b.packet.last = { label: m ? m.label : `мутации ${arg} нет`, amount: result };
+      b.packet.last = { label: m ? m.label : `мутации ${mutationOf(arg)} нет`, amount: result };
     }
     b.pc = next;
     if (b.pc === 0) flush(b);

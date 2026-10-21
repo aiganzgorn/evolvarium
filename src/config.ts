@@ -20,6 +20,14 @@ export const USE_COST = 1;          // energy per "use mutation"
 // light (global for now)
 export const LIGHT = 0.75;          // 0..1
 
+// leg mutation
+export const LEG_LENGTH = 70;                 // world units, fixed at birth
+export const LEG_STEP_DEG = 12;               // how far one action turns it
+export const LEG_ATTACH_DEG = 90;             // where it hangs: 90° = bottom of the body
+export const LEG_ATTACH_R = 0.85;             // attach point radius, as a share of the body radius
+export const LEG_STEP = (LEG_STEP_DEG * Math.PI) / 180;
+export const LEG_ATTACH = (LEG_ATTACH_DEG * Math.PI) / 180;
+
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left
 
