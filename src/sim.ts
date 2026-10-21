@@ -4,7 +4,7 @@ import { mulberry32, type Rng } from "./rng.ts";
 import { BASE_GENOME, type Genome } from "./genome.ts";
 
 export const W = 1440, H = 900;
-export const SIZE = 120;            // Плюша's diameter in world units
+export const SIZE = 40;             // Плюша's diameter in world units (~40 px on a 1440×900 screen)
 export const TICK_HZ = 20;
 
 export type Creature = {

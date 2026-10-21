@@ -58,7 +58,7 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
 }
 
 function nameTag(ctx: CanvasRenderingContext2D, text: string, x: number, top: number, r: number): void {
-  const font = Math.max(12, Math.round(r * 0.26));
+  const font = Math.max(10, Math.round(r * 0.6));
   ctx.font = `${font}px ui-monospace, Menlo, monospace`;
   ctx.textAlign = "center";
   const w = ctx.measureText(text).width;

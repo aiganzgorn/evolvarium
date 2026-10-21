@@ -8,6 +8,7 @@ const tickEl = document.getElementById("tick")!;
 const nEl = document.getElementById("n")!;
 const seedEl = document.getElementById("seed")!;
 const stateEl = document.getElementById("state")!;
+const hintEl = document.getElementById("hint")!;
 
 const seed = Number(new URLSearchParams(location.search).get("seed")) || 1;
 const world = createWorld(seed);
@@ -29,20 +30,25 @@ const TICK_MS = 1000 / TICK_HZ;
 let acc = 0;
 let last = performance.now();
 let shownTick = -1;
-let paused = false;
+let paused = true;                    // the world starts frozen and waits for a key press
+let started = false;
 
 function setPaused(v: boolean): void {
   paused = v;
   acc = 0;                            // drop the backlog so we don't jump on resume
-  stateEl.textContent = v ? "пауза" : "идёт";
+  stateEl.textContent = v ? "пауза (пробел)" : "идёт (пробел)";
   stateEl.style.color = v ? "#ffd76e" : "";
+  hintEl.style.display = v && !started ? "" : "none";
 }
 
 addEventListener("keydown", (e) => {
   if (e.code !== "Space") return;
   e.preventDefault();
+  if (paused) started = true;
   setPaused(!paused);
 });
+
+setPaused(true);
 
 function frame(now: number): void {
   acc = paused ? 0 : acc + (now - last);
