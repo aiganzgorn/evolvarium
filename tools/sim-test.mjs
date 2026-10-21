@@ -31,8 +31,8 @@ assert.equal(a.light, LIGHT, "глобальный свет");
 assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg"], "две мутации");
 assert.equal(opOf(p.brain.mem[0]), OP_USE, "программа начинается с фотосинтеза");
 assert.equal(mutationOf(argOf(p.brain.mem[0])), 0, "первая ячейка — мутация 0");
-assert.ok(p.brain.mem.includes(useCell(1, 2)), "в программе есть захват земли");
-assert.ok(p.brain.mem.includes(useCell(1, 3)), "и отпускание");
+assert.ok(p.brain.mem.filter(v => v === useCell(1, 2)).length >= 2, "в программе минимум два захвата");
+assert.ok(p.brain.mem.includes(useCell(1, 0)) && p.brain.mem.includes(useCell(1, 1)), "повороты в обе стороны");
 assert.equal(p.brain.mem.filter(v => opOf(v) === OP_JUMP).length, 1, "ровно один прыжок");
 assert.equal(p.brain.mem[MEM_CELLS - 1], OP_JUMP, "последняя ячейка — прыжок в начало");
 
@@ -101,6 +101,28 @@ assert.ok(near(Math.hypot(t4.x - attachPoint(c3).x, t4.y - attachPoint(c3).y), 2
 const seedA = createWorld(7), seedB = createWorld(7), seedC = createWorld(8);
 assert.deepEqual(seedA.creatures[0].brain.mem, seedB.creatures[0].brain.mem, "один seed — одна программа");
 assert.notDeepEqual(seedA.creatures[0].brain.mem, seedC.creatures[0].brain.mem, "другой seed — другая программа");
+
+// --- she walks: the swing reverses every step, so the body stays upright ------
+const walk = (seed, ticks) => {
+  const w = createWorld(seed);
+  const start = { x: w.creatures[0].x, y: w.creatures[0].y };
+  let last = { x: start.x, y: start.y, angle: 0 };
+  let died = 0;
+  for (let t = 0; t < ticks; t++) {
+    stepWorld(w);
+    const c = w.creatures[0];
+    if (!c) { died = t + 1; break; }
+    last = { x: c.x, y: c.y, angle: c.angle };
+  }
+  return { start, last, died };
+};
+
+for (const seed of [1, 3, 7, 42]) {
+  const r = walk(seed, 400);
+  const moved = Math.hypot(r.last.x - r.start.x, r.last.y - r.start.y);
+  assert.ok(moved > 25, `seed ${seed}: ушла на ${moved.toFixed(1)} ед.`);
+  assert.ok(Math.abs(r.last.angle) < 1e-6, `seed ${seed}: повороты гасятся, тело не кувыркается (${r.last.angle})`);
+}
 
 // --- a hand-built program: photosynthesis pays for the leg --------------------
 const w = createWorld(1);

@@ -64,19 +64,27 @@ export type World = {
 };
 
 // The starting program is drawn from the seed: same seed, same creature.
+// One step = hook the ground, swing the body, let go, swing the leg back.
+// The swing reverses every step, so the body stays upright while it walks.
 function createBrain(rng: Rng): Brain {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
   let i = 0;
 
-  const photos = 5 + Math.floor(rng() * 8);                 // 5..12 turns of light
-  for (let k = 0; k < photos && i < MEM_CELLS - 3; k++) mem[i++] = useCell(0);
+  const photos = 20 + Math.floor(rng() * 5);              // 20..24 turns of light
+  while (i < photos && i < MEM_CELLS - 1) mem[i++] = useCell(0);
 
-  mem[i++] = useCell(1, 2);                                 // leg: grab the ground
-  const turns = 3 + Math.floor(rng() * 5);                  // 3..7 turns -> the body swings
-  for (let k = 0; k < turns && i < MEM_CELLS - 1; k++) mem[i++] = useCell(1, rng() < 0.25 ? 1 : 0);
-  if (i < MEM_CELLS - 1) mem[i++] = useCell(1, 3);          // leg: let go
+  const right = useCell(1, 0), left = useCell(1, 1);
+  const grab = useCell(1, 2), release = useCell(1, 3);
+  const near = 3 + Math.floor(rng() * 2);                 // 3..4 turns per swing
+  const far = near + 1;
+  const step = rng() < 0.5
+    ? [grab, ...Array(far).fill(right), release, ...Array(far).fill(left),
+       grab, ...Array(far).fill(left), release, ...Array(near).fill(right)]
+    : [grab, ...Array(far).fill(left), release, ...Array(far).fill(right),
+       grab, ...Array(far).fill(right), release, ...Array(near).fill(left)];
+  for (const cell of step) if (i < MEM_CELLS - 1) mem[i++] = cell;
 
-  mem[MEM_CELLS - 1] = OP_JUMP;                             // back to the first cell
+  mem[MEM_CELLS - 1] = OP_JUMP;                           // back to the first cell
   return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } };
 }
 
