@@ -36,6 +36,21 @@ export const LEG_STEP = (LEG_STEP_DEG * Math.PI) / 180;
 export const LEG_ATTACH = (LEG_ATTACH_DEG * Math.PI) / 180;
 export const LEG_SPREAD = (LEG_SPREAD_DEG * Math.PI) / 180;
 
+// organic (plants that grow, photosynthesise and scatter seeds)
+export const BUSHES = 2;               // bushes placed at the start
+export const ORGANIC_CELLS = 8;        // tiny brain: 6 photosynthesis, 1 seed, 1 jump
+export const ORGANIC_SIZE = 26;        // full radius in world units
+export const SEED_SIZE = 6;            // a seed starts this small
+export const ORGANIC_GROW = 0.12;      // growth per tick
+export const ORGANIC_MAX = 60;         // it cannot store more energy
+export const ORGANIC_SEED_MIN = 30;    // no seed without this much energy
+export const ORGANIC_SEED_GROWN = 0.85; // ...and only once it is nearly full size
+export const MAX_ORGANICS = 16;        // the world cannot feed more bushes
+export const ORGANIC_SEED_SHARE = 0.5; // half of the energy is spent on a seed
+export const SEED_ENERGY = 0.1;        // the seed gets a tenth of the parent's energy
+export const SEED_DIST = 46;           // how far the seed lands from the parent
+export const SEED_CROWD = 1.6;         // no seed if another bush is closer than size × this
+
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left
 

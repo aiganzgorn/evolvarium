@@ -231,7 +231,7 @@ let started = false;
 const history: Snapshot[] = [];
 
 function stepForward(): void {
-  if (world.creatures.length === 0) return;
+  if (world.creatures.length === 0 && world.organics.length === 0) return;   // nothing alive
   history.push(snapshot(world));
   if (history.length > HISTORY_TICKS) history.shift();
   stepWorld(world);
@@ -253,7 +253,7 @@ function setPaused(v: boolean): void {
 addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
-    if (world.creatures.length === 0) return;   // nothing left to run
+    if (world.creatures.length === 0 && world.organics.length === 0) return;   // nothing left to run
     if (paused) started = true;
     setPaused(!paused);
     return;
@@ -295,7 +295,11 @@ function frame(now: number): void {
   packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
   histEl.textContent = String(history.length);
   lightEl.textContent = `${Math.round(lightAt(world, p ? p.x : W / 2) * 100)}%`;
-  if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
+  if (!p) {
+    stateEl.textContent = world.organics.length ? "плюш нет" : "пусто";
+    stateEl.style.color = world.organics.length ? "#79dd8c" : "#ff8a8a";
+    hintEl.style.display = "none";
+  }
 
   requestAnimationFrame(frame);
 }

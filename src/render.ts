@@ -49,12 +49,27 @@ function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: numb
 
 function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number): void {
   const cx = ox + o.x * s, cy = oy + o.y * s;
-  const r = SIZE * s * (0.14 + Math.min(o.amount, 40) * 0.014);
+  const r = Math.max(2, o.size * s);
 
-  ctx.fillStyle = "rgba(120,220,150,0.35)";
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(170,240,180,0.75)";
-  ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(120,220,150,0.16)";
+  ctx.beginPath(); ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2); ctx.fill();
+
+  // a little cluster of leaves, so a bush reads as a plant rather than a stain
+  ctx.fillStyle = "rgba(88,186,116,0.85)";
+  ctx.beginPath(); ctx.arc(cx, cy + r * 0.25, r * 0.8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(120,214,142,0.9)";
+  ctx.beginPath(); ctx.arc(cx - r * 0.55, cy - r * 0.15, r * 0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.55, cy - r * 0.1, r * 0.65, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(196,248,206,0.85)";
+  ctx.beginPath(); ctx.arc(cx - r * 0.2, cy - r * 0.45, r * 0.34, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.3, cy - r * 0.5, r * 0.26, 0, Math.PI * 2); ctx.fill();
+
+  ctx.strokeStyle = "rgba(74,120,80,0.9)";
+  ctx.lineWidth = Math.max(1, r * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(cx, cy + r * 0.5);
+  ctx.lineTo(cx, cy + r * 1.05);
+  ctx.stroke();
 }
 
 function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number, s: number, tick: number, selected: boolean): void {
