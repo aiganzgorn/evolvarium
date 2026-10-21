@@ -1,9 +1,11 @@
 // Headless self-check of the pure simulation core.
 import assert from "node:assert/strict";
-import { createWorld, stepWorld, OP_REST, OP_JUMP } from "../src/sim.ts";
+import { createWorld, stepWorld, opOf, argOf, OP_REST, OP_JUMP, OP_USE } from "../src/sim.ts";
 import {
-  W, H, SIZE, MEM_CELLS, START_ENERGY, JUMP_COST, ORG_BASE,
+  W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT, ORG_BASE,
 } from "../src/config.ts";
+
+const near = (a, b) => Math.abs(a - b) < 1e-9;
 
 // --- shape -------------------------------------------------------------------
 const a = createWorld(42);
@@ -14,42 +16,75 @@ assert.deepEqual([p.x, p.y], [W / 2, H / 2], "стоит по центру");
 assert.equal(p.size, SIZE, "размер задан в координатах");
 assert.equal(p.brain.mem.length, MEM_CELLS, "память на 60 ячеек");
 assert.equal(p.brain.energy, START_ENERGY, "энергия на старте");
-assert.deepEqual(p.mutations, [], "мутаций пока нет");
-assert.deepEqual(a.organics, [], "мир пустой");
-assert.ok(p.brain.mem.slice(0, MEM_CELLS - 1).every(c => c === OP_REST), "все ячейки, кроме последней, — отдых");
+assert.equal(p.brain.packet.energy, 0, "пакет пуст");
+assert.equal(a.light, LIGHT, "глобальный свет");
+assert.equal(p.mutations.length, 1, "одна мутация");
+assert.equal(p.mutations[0].id, "photosynthesis", "это фотосинтез");
+assert.equal(opOf(p.brain.mem[0]), OP_USE, "первая ячейка — использование мутации");
+assert.equal(argOf(p.brain.mem[0]), 0, "параметр — индекс мутации 0");
 assert.equal(p.brain.mem[MEM_CELLS - 1], OP_JUMP, "последняя ячейка — прыжок в начало");
 
-// --- one pass through memory costs exactly 1 energy ---------------------------
-const pass = createWorld(1);
-for (let i = 0; i < MEM_CELLS - 1; i++) stepWorld(pass);
-assert.equal(pass.creatures[0].brain.energy, START_ENERGY, "отдых энергии не тратит");
-stepWorld(pass);                                     // reads the jump
-assert.equal(pass.creatures[0].brain.energy, START_ENERGY - JUMP_COST, "прыжок стоит JUMP_COST");
-assert.equal(pass.creatures[0].brain.pc, 0, "вернулась в первую ячейку");
+// --- photosynthesis: 2 energy at 100% light, so 1.5 at 75% --------------------
+assert.equal(p.mutations[0].act({ self: p, world: a, light: 1 }), 2, "100% света — 2");
+assert.equal(p.mutations[0].act({ self: p, world: a, light: 0 }), 0, "0% света — 0");
+assert.equal(p.mutations[0].act({ self: p, world: a, light: 0.75 }), 1.5, "75% света — 1.5");
 
-// --- determinism -------------------------------------------------------------
+// --- first use: pay from the head, result goes into the packet -----------------
+const w = createWorld(1);
+stepWorld(w);
+let b = w.creatures[0].brain;
+assert.equal(b.energy, START_ENERGY - USE_COST, "использование стоит USE_COST");
+assert.equal(b.packet.energy, 1.5, "результат лёг в пакет");
+
+// --- second use: the packet pays for itself ------------------------------------
+stepWorld(w);
+assert.equal(b.energy, START_ENERGY - USE_COST, "голова больше не платит");
+assert.equal(b.packet.energy, 2, "пакет оплатил стоимость и принял результат");
+
+// --- full pass: the packet flushes into the head on wrap -----------------------
+for (let i = 2; i < MEM_CELLS; i++) stepWorld(w);
+assert.equal(b.pc, 0, "вернулась в первую ячейку");
+assert.equal(b.packet.energy, 0, "пакет опустошён");
+assert.ok(near(b.energy, START_ENERGY + 1), `за проход +1 энергии, а не ${b.energy}`);
+
+// --- caps: head cannot overflow, packet has its own ceiling --------------------
+const capped = createWorld(1);
+capped.creatures[0].brain.mem.fill(OP_USE);      // 60 uses in a row: far more than the caps allow
+capped.creatures[0].brain.energy = HEAD_MAX;
+for (let i = 0; i < MEM_CELLS; i++) stepWorld(capped);
+b = capped.creatures[0].brain;
+assert.equal(b.energy, HEAD_MAX, "голова не переполняется");
+assert.equal(b.packet.energy, PACKET_MAX - 1, "излишек остался в пакете под его потолком");
+
+// --- costs eat the packet first, the head only when it is empty ---------------
+const poor = createWorld(1);
+poor.creatures[0].brain.mem.fill(0);
+poor.creatures[0].brain.mem[0] = 52;             // use mutation #5 — её нет
+stepWorld(poor);
+assert.equal(poor.creatures[0].brain.energy, START_ENERGY - USE_COST, "неизвестная мутация всё равно стоит");
+assert.equal(poor.creatures[0].brain.packet.energy, 0, "и ничего не возвращает");
+
+// --- determinism ---------------------------------------------------------------
 const x = createWorld(42), y = createWorld(42);
 for (let i = 0; i < 300; i++) { stepWorld(x); stepWorld(y); }
 assert.deepEqual(x.creatures, y.creatures, "один seed — одно состояние");
 
-// --- death, organic left behind, and the world stops --------------------------
-const w = createWorld(1);
-const dieAt = Math.ceil(START_ENERGY / JUMP_COST) * MEM_CELLS;
-for (let i = 0; i < dieAt - 1; i++) stepWorld(w);
-assert.equal(w.creatures.length, 1, "ещё жива перед последним прыжком");
-assert.equal(w.organics.length, 0, "органики ещё нет");
+// --- death by jumps only, organic left behind, world stops --------------------
+const dying = createWorld(1);
+dying.creatures[0].brain.mem.fill(OP_JUMP);      // 1 energy per tick, nothing comes back
+const dieAt = START_ENERGY / JUMP_COST;
+for (let i = 0; i < dieAt - 1; i++) stepWorld(dying);
+assert.equal(dying.creatures.length, 1, "ещё жива перед последним тиком");
+stepWorld(dying);
+assert.equal(dying.creatures.length, 0, "на нуле энергии умерла");
+assert.equal(dying.tick, dieAt, "умерла ровно на своём тике");
+assert.equal(dying.organics.length, 1, "оставила органику");
+assert.equal(dying.organics[0].amount, ORG_BASE, "органика = ORG_BASE + оставшаяся энергия");
+assert.deepEqual([dying.organics[0].x, dying.organics[0].y], [W / 2, H / 2], "органика на месте смерти");
 
-stepWorld(w);
-assert.equal(w.creatures.length, 0, "на нуле энергии умерла");
-assert.equal(w.tick, dieAt, "умерла ровно на своём цикле");
-assert.equal(w.organics.length, 1, "оставила органику");
-const o = w.organics[0];
-assert.equal(o.amount, ORG_BASE, "органика = ORG_BASE + оставшаяся энергия");
-assert.deepEqual([o.x, o.y], [W / 2, H / 2], "органика на месте смерти");
+const frozen = dying.tick;
+for (let i = 0; i < 50; i++) stepWorld(dying);
+assert.equal(dying.tick, frozen, "без живых тик стоит");
+assert.equal(dying.organics.length, 1, "органика не копится");
 
-const frozen = w.tick;
-for (let i = 0; i < 50; i++) stepWorld(w);
-assert.equal(w.tick, frozen, "без живых тик стоит");
-assert.equal(w.organics.length, 1, "органика не копится");
-
-console.log(`ok — смерть на тике ${dieAt}, органика ${o.amount} в (${o.x}, ${o.y}), тик остановился`);
+console.log(`ok — фотосинтез 1.5 при 75% света, проход +1 энергии, потолки ${HEAD_MAX}/${PACKET_MAX}, смерть на тике ${dieAt}`);

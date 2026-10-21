@@ -12,7 +12,13 @@ export const SIZE = 40;             // diameter in world units
 // brain
 export const MEM_CELLS = 60;
 export const START_ENERGY = 20;
+export const HEAD_MAX = 30;         // the head cannot hold more
+export const PACKET_MAX = 10;       // the packet cannot carry more
 export const JUMP_COST = 1;         // energy per "go to cell N"
+export const USE_COST = 1;          // energy per "use mutation"
+
+// light (global for now)
+export const LIGHT = 0.75;          // 0..1
 
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left

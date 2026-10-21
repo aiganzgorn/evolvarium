@@ -9,8 +9,9 @@
       canvas { display: block; }
       #hud {
         position: fixed; top: 12px; left: 14px;
-        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #cdd6ff; opacity: .75; pointer-events: none; user-select: none;
+        text-shadow: 0 1px 2px rgba(0,0,0,.8);
       }
       #hud b { color: #ffd76e; font-weight: 600; }
       #hint {
@@ -22,7 +23,10 @@
   </head>
   <body>
     <canvas id="c"></canvas>
-    <div id="hud">🐾 <b>Плюша</b> · <span id="tick">тик 0</span> · существ <span id="n">0</span> · энергия <span id="energy">0</span> · органика <span id="org">0</span> · seed <span id="seed">1</span> · <span id="state">пауза</span></div>
+    <div id="hud">
+      <div>🐾 <b>Плюша</b> · <span id="tick">тик 0</span> · существ <span id="n">0</span> · энергия <span id="energy">0</span> · пакет <span id="packet">0</span></div>
+      <div>свет <span id="light">75%</span> · органика <span id="org">0</span> · seed <span id="seed">1</span> · <span id="state">пауза</span></div>
+    </div>
     <div id="hint">нажми пробел</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

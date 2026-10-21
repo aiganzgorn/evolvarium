@@ -2,20 +2,31 @@
 // The world is plain coordinates in abstract units (one 1440×900 screen). No cells.
 import { mulberry32, type Rng } from "./rng.ts";
 import type { Genome } from "./genome.ts";
+import type { Mutation } from "./mutations.ts";
+import { PHOTOSYNTHESIS } from "./mutations.ts";
 import {
-  W, H, SIZE, MEM_CELLS, START_ENERGY, JUMP_COST, ORG_BASE, BASE_GENOME,
+  W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
+  JUMP_COST, USE_COST, LIGHT, ORG_BASE, BASE_GENOME,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
-// One tick reads one memory cell. The number in the cell IS the op.
-export const OP_REST = 0;           // "save energy": does nothing, costs nothing
-export const OP_JUMP = 1;           // "go to cell N": N defaults to 0 (the first cell)
-export const ENERGY_COST: Record<number, number> = { [OP_REST]: 0, [OP_JUMP]: JUMP_COST };
+// A memory cell is one number: the last digit is the op, the rest is its argument.
+//   0 = rest (costs nothing), 1 = jump to cell <arg>, 2 = use mutation <arg>.
+export const OP_REST = 0;
+export const OP_JUMP = 1;
+export const OP_USE = 2;
+export const ENERGY_COST: Record<number, number> = {
+  [OP_REST]: 0, [OP_JUMP]: JUMP_COST, [OP_USE]: USE_COST,
+};
+
+export const opOf = (cell: number): number => cell % 10;
+export const argOf = (cell: number): number => Math.floor(cell / 10);
 
 export type Brain = {
   mem: number[];
   pc: number;
   energy: number;
+  packet: { energy: number };   // travels between cells, flushed into the head on wrap
 };
 
 export type Creature = {
@@ -25,7 +36,7 @@ export type Creature = {
   size: number;       // diameter
   genome: Genome;
   brain: Brain;
-  mutations: string[];  // traits the brain will drive once there are ops for them
+  mutations: Mutation[];
 };
 
 export type Organic = {
@@ -37,19 +48,26 @@ export type Organic = {
 export type World = {
   rng: Rng;
   tick: number;
+  light: number;      // 0..1, global for now
   creatures: Creature[];
   organics: Organic[];
 };
 
 function createBrain(): Brain {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
-  mem[MEM_CELLS - 1] = OP_JUMP;     // a full pass through memory costs one jump
-  return { mem, pc: 0, energy: START_ENERGY };
+  mem[0] = OP_USE;                  // photosynthesis (mutation 0) four times per pass
+  mem[1] = OP_USE;
+  mem[2] = OP_USE;
+  mem[3] = OP_USE;
+  mem[MEM_CELLS - 1] = OP_JUMP;     // back to the first cell
+  return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0 } };
 }
 
 export function createWorld(seed = 1, count = 1): World {
   const rng = mulberry32(seed);
-  const world: World = { rng, tick: 0, creatures: [], organics: [] };
+  const world: World = {
+    rng, tick: 0, light: LIGHT, creatures: [], organics: [],
+  };
   for (let i = 0; i < count; i++) {
     world.creatures.push({
       id: i,
@@ -58,10 +76,24 @@ export function createWorld(seed = 1, count = 1): World {
       size: SIZE,
       genome: { ...BASE_GENOME },
       brain: createBrain(),
-      mutations: [],
+      mutations: [PHOTOSYNTHESIS],
     });
   }
   return world;
+}
+
+// Costs are paid from the packet first, and from the head only when it is empty.
+function pay(b: Brain, cost: number): void {
+  const fromPacket = Math.min(b.packet.energy, cost);
+  b.packet.energy -= fromPacket;
+  b.energy -= cost - fromPacket;
+}
+
+// Wrap to the first cell: what the packet carries goes back into the head, up to HEAD_MAX.
+function flush(b: Brain): void {
+  const moved = Math.min(HEAD_MAX - b.energy, b.packet.energy);
+  b.energy += moved;
+  b.packet.energy = Math.min(PACKET_MAX, b.packet.energy - moved);
 }
 
 // Movement is off for now — the tick only drives the brain (and, in time, the body).
@@ -71,8 +103,21 @@ export function stepWorld(world: World): void {
 
   for (const c of world.creatures) {
     const b = c.brain;
-    if (b.mem[b.pc] === OP_JUMP) { b.energy -= ENERGY_COST[OP_JUMP]; b.pc = 0; }
-    else b.pc = (b.pc + 1) % MEM_CELLS;
+    const cell = b.mem[b.pc];
+    const op = opOf(cell), arg = argOf(cell);
+    let next = (b.pc + 1) % MEM_CELLS;
+
+    if (op === OP_JUMP) {
+      pay(b, JUMP_COST);
+      next = arg % MEM_CELLS;
+    } else if (op === OP_USE) {
+      pay(b, USE_COST);
+      const m = c.mutations[arg];
+      const result = m ? m.act({ self: c, world, light: world.light }) : 0;
+      b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
+    }
+    b.pc = next;
+    if (b.pc === 0) flush(b);
   }
 
   for (const c of world.creatures) {

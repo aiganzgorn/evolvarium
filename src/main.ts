@@ -11,12 +11,15 @@ const seedEl = document.getElementById("seed")!;
 const stateEl = document.getElementById("state")!;
 const hintEl = document.getElementById("hint")!;
 const energyEl = document.getElementById("energy")!;
+const packetEl = document.getElementById("packet")!;
 const orgEl = document.getElementById("org")!;
+const lightEl = document.getElementById("light")!;
 
 const seed = Number(new URLSearchParams(location.search).get("seed")) || 1;
 const world = createWorld(seed);
 seedEl.textContent = String(seed);
 nEl.textContent = String(world.creatures.length);
+lightEl.textContent = `${Math.round(world.light * 100)}%`;
 
 function resize(): void {
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -28,6 +31,8 @@ function resize(): void {
 }
 addEventListener("resize", resize);
 resize();
+
+const fmt = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 const TICK_MS = 1000 / TICK_HZ;
 let acc = 0;
@@ -66,7 +71,8 @@ function frame(now: number): void {
   const p = world.creatures[0];
   nEl.textContent = String(world.creatures.length);
   orgEl.textContent = String(world.organics.length);
-  energyEl.textContent = p ? String(p.brain.energy) : "—";
+  energyEl.textContent = p ? fmt(p.brain.energy) : "—";
+  packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
   if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
 
   requestAnimationFrame(frame);
