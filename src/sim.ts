@@ -100,6 +100,49 @@ function flush(b: Brain): void {
   if (moved > 0) b.packet.last = null;
 }
 
+// --- snapshots ---------------------------------------------------------------
+// A whole world state, deep-copied, so the UI can step backwards.
+export type Snapshot = {
+  tick: number;
+  light: number;
+  creatures: Creature[];
+  organics: Organic[];
+};
+
+// shortcut: the rng's own state is not copied — fine while stepWorld draws no
+// randomness; snapshot it here as soon as it does.
+export function snapshot(world: World): Snapshot {
+  return {
+    tick: world.tick,
+    light: world.light,
+    creatures: world.creatures.map(copyCreature),
+    organics: world.organics.map(o => ({ ...o })),
+  };
+}
+
+export function restore(world: World, s: Snapshot): void {
+  world.tick = s.tick;
+  world.light = s.light;
+  world.creatures = s.creatures.map(copyCreature);
+  world.organics = s.organics.map(o => ({ ...o }));
+}
+
+function copyCreature(c: Creature): Creature {
+  return {
+    ...c,
+    genome: { ...c.genome },
+    brain: {
+      ...c.brain,
+      mem: c.brain.mem.slice(),
+      packet: {
+        energy: c.brain.packet.energy,
+        last: c.brain.packet.last ? { ...c.brain.packet.last } : null,
+      },
+    },
+    mutations: c.mutations.slice(),   // definitions are shared, not copied
+  };
+}
+
 // Movement is off for now — the tick only drives the brain (and, in time, the body).
 export function stepWorld(world: World): void {
   if (world.creatures.length === 0) return;   // everyone is dead: the loop stops

@@ -23,6 +23,9 @@ export const LIGHT = 0.75;          // 0..1
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left
 
+// debug
+export const HISTORY_TICKS = 200;   // how many ticks you can rewind
+
 // genome
 export const BASE_GENOME: Genome = { speed: 3, turn: 0.18, hue: 200 };
 export const MUTATION = { count: 3, chance: 0.2, size: 0.2 };

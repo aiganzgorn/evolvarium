@@ -1,6 +1,6 @@
 // Headless self-check of the pure simulation core.
 import assert from "node:assert/strict";
-import { createWorld, stepWorld, opOf, argOf, OP_REST, OP_JUMP, OP_USE } from "../src/sim.ts";
+import { createWorld, stepWorld, snapshot, restore, opOf, argOf, OP_REST, OP_JUMP, OP_USE } from "../src/sim.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT, ORG_BASE,
 } from "../src/config.ts";
@@ -89,4 +89,31 @@ for (let i = 0; i < 50; i++) stepWorld(dying);
 assert.equal(dying.tick, frozen, "без живых тик стоит");
 assert.equal(dying.organics.length, 1, "органика не копится");
 
-console.log(`ok — фотосинтез 1.5 при 75% света, проход +1 энергии, потолки ${HEAD_MAX}/${PACKET_MAX}, смерть на тике ${dieAt}`);
+// --- rewind: a snapshot goes back exactly where it came from -------------------
+const rew = createWorld(3);
+for (let i = 0; i < 10; i++) stepWorld(rew);
+const snap = snapshot(rew);
+for (let i = 0; i < 15; i++) stepWorld(rew);
+assert.notEqual(rew.tick, snap.tick, "после 15 тиков состояние ушло вперёд");
+
+restore(rew, snap);
+assert.equal(rew.tick, snap.tick, "вернулись на тот же тик");
+
+const ref = createWorld(3);
+for (let i = 0; i < 10; i++) stepWorld(ref);
+assert.deepEqual(rew.creatures[0].brain, ref.creatures[0].brain, "мозг восстановлен бит в бит");
+assert.deepEqual(rew.organics, [], "мир без органики восстановлен");
+
+// the restored world keeps living exactly like the one that never rewound
+for (let i = 0; i < 40; i++) { stepWorld(ref); stepWorld(rew); }
+assert.deepEqual(rew.creatures, ref.creatures, "после отката мир идёт тем же путём");
+assert.equal(rew.tick, ref.tick, "и тик совпадает");
+
+// a snapshot is not a live view: later ticks must not change it
+const keep = snapshot(rew);
+const keptTick = keep.tick, keptEnergy = keep.creatures[0].brain.energy;
+for (let i = 0; i < 30; i++) stepWorld(rew);
+assert.equal(keep.tick, keptTick, "снимок не изменился");
+assert.equal(keep.creatures[0].brain.energy, keptEnergy, "энергия в снимке не изменилась");
+
+console.log(`ok — фотосинтез 1.5 при 75% света, проход +1 энергии, потолки ${HEAD_MAX}/${PACKET_MAX}, откат точный, смерть на тике ${dieAt}`);

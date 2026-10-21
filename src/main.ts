@@ -1,7 +1,7 @@
 // Browser entry point: canvas, resize, fixed-rate loop, the click-to-peek panel.
-import { createWorld, stepWorld, opOf, type Creature } from "./sim.ts";
+import { createWorld, stepWorld, snapshot, restore, opOf, type Creature, type Snapshot } from "./sim.ts";
 import { draw, viewTransform } from "./render.ts";
-import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX } from "./config.ts";
+import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS } from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -9,7 +9,7 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 
 const tickEl = $("tick"), nEl = $("n"), seedEl = $("seed"), stateEl = $("state");
 const hintEl = $("hint"), energyEl = $("energy"), packetEl = $("packet");
-const orgEl = $("org"), lightEl = $("light");
+const orgEl = $("org"), lightEl = $("light"), histEl = $("hist");
 const panel = $("panel"), pEnergy = $("penergy"), pMax = $("pmax"), pPc = $("ppc");
 const pPacket = $("ppacket"), pPackMax = $("ppackmax"), pLast = $("plast");
 const pMut = $("pmut"), pMem = $("pmem"), pMemCount = $("pmemcount");
@@ -127,6 +127,21 @@ let shownTick = -1;
 let paused = true;                    // the world starts frozen and waits for a key press
 let started = false;
 
+// --- ticking with a rewind buffer ---------------------------------------------
+const history: Snapshot[] = [];
+
+function stepForward(): void {
+  if (world.creatures.length === 0) return;
+  history.push(snapshot(world));
+  if (history.length > HISTORY_TICKS) history.shift();
+  stepWorld(world);
+}
+
+function stepBack(): void {
+  const s = history.pop();
+  if (s) restore(world, s);
+}
+
 function setPaused(v: boolean): void {
   paused = v;
   acc = 0;                            // drop the backlog so we don't jump on resume
@@ -136,11 +151,26 @@ function setPaused(v: boolean): void {
 }
 
 addEventListener("keydown", (e) => {
-  if (e.code !== "Space") return;
-  e.preventDefault();
-  if (world.creatures.length === 0) return;   // nothing left to run
-  if (paused) started = true;
-  setPaused(!paused);
+  if (e.code === "Space") {
+    e.preventDefault();
+    if (world.creatures.length === 0) return;   // nothing left to run
+    if (paused) started = true;
+    setPaused(!paused);
+    return;
+  }
+  if (e.code === "ArrowRight" || e.code === "ArrowDown") {
+    e.preventDefault();
+    started = true;
+    setPaused(true);                  // stepping by hand means you want it held
+    stepForward();
+    return;
+  }
+  if (e.code === "ArrowLeft" || e.code === "ArrowUp") {
+    e.preventDefault();
+    started = true;
+    setPaused(true);
+    stepBack();
+  }
 });
 
 setPaused(true);
@@ -149,7 +179,7 @@ function frame(now: number): void {
   acc = paused ? 0 : acc + (now - last);
   last = now;
   let guard = 0;                       // never freeze on a long tab switch
-  while (acc >= TICK_MS && guard++ < 5) { stepWorld(world); acc -= TICK_MS; }
+  while (acc >= TICK_MS && guard++ < 5) { stepForward(); acc -= TICK_MS; }
 
   draw(ctx, world, innerWidth, innerHeight);
   if (world.tick !== shownTick) {
@@ -163,6 +193,7 @@ function frame(now: number): void {
   orgEl.textContent = String(world.organics.length);
   energyEl.textContent = p ? fmt(p.brain.energy) : "—";
   packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
+  histEl.textContent = String(history.length);
   if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
 
   requestAnimationFrame(frame);
