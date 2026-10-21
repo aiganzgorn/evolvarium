@@ -1,5 +1,10 @@
 // Browser entry point: canvas, resize, fixed-rate loop, the click-to-peek panel.
-import { createWorld, stepWorld, snapshot, restore, opOf, useCell, type Creature, type Snapshot } from "./sim.ts";
+import {
+  createWorld, stepWorld, snapshot, restore, opOf, mutationOf, paramsOf, jumpTarget,
+  jumpCell, useCell, demoMemory, randomMemory, OP_REST,
+  type Creature, type Snapshot,
+} from "./sim.ts";
+import { mulberry32 } from "./rng.ts";
 import { draw, viewTransform } from "./render.ts";
 import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS } from "./config.ts";
 
@@ -39,7 +44,9 @@ pMemCount.textContent = String(MEM_CELLS);
 for (let i = 0; i < MEM_CELLS; i++) {
   const d = document.createElement("div");
   d.className = "cell";
+  d.dataset.i = String(i);
   d.textContent = "0";
+  d.addEventListener("click", () => selectCell(i));
   pMem.append(d);
   cells.push(d);
 }
@@ -60,7 +67,7 @@ function fillMutations(p: Creature): void {
     head.className = "mut";
     const idx = document.createElement("span");
     idx.className = "idx";
-    idx.textContent = String(i);
+    idx.textContent = i.toString().padStart(2, "0");
     const name = document.createElement("b");
     name.textContent = m.label;
     head.append(idx, name);
@@ -72,18 +79,19 @@ function fillMutations(p: Creature): void {
     }
     pMut.append(head);
 
-    for (const a of m.actions) {
-      const row = document.createElement("div");
-      row.className = "mut act";
-      const cell = document.createElement("span");
-      cell.className = "cellnum";
-      cell.textContent = String(useCell(i, a.action));
-      const label = document.createElement("span");
-      label.textContent = ` ${a.label}`;
-      row.append(cell, label);
-      pMut.append(row);
-    }
+    const hint = document.createElement("div");
+    hint.className = "mut act";
+    hint.textContent = m.hint;
+    pMut.append(hint);
   });
+}
+
+// A cell as it reads in the grid: "2·01" (mutation), "1→07" (jump), "·" (rest).
+function cellLabel(v: number): string {
+  const op = opOf(v);
+  if (op === 2) return `2·${String(mutationOf(v)).padStart(2, "0")}`;
+  if (op === 1) return `1→${String(jumpTarget(v)).padStart(2, "0")}`;
+  return "·";
 }
 
 function paintPanel(): void {
@@ -102,12 +110,89 @@ function paintPanel(): void {
 
   for (let i = 0; i < MEM_CELLS; i++) {
     const v = b.mem[i], op = opOf(v), el = cells[i];
-    const text = String(v);
+    const text = cellLabel(v);
     if (el.textContent !== text) el.textContent = text;
-    const cls = "cell" + (op === 2 ? " use" : op === 1 ? " jump" : "") + (i === b.pc ? " pc" : "");
+    const cls = "cell" + (op === 2 ? " use" : op === 1 ? " jump" : "") +
+      (i === b.pc ? " pc" : "") + (i === selected ? " sel" : "");
     if (el.className !== cls) el.className = cls;
   }
 }
+
+// --- cell editor -------------------------------------------------------------
+const editor = $("editor"), edOp = $("edop") as unknown as HTMLSelectElement;
+const edJumpBox = $("edjump"), edJump = $("edjumpn") as unknown as HTMLInputElement;
+const edUse = $("eduse") as unknown as HTMLDivElement;
+const edIdx = $("edidx") as unknown as HTMLInputElement;
+const edParams = [1, 2, 3, 4].map(n => $(`edp${n}`) as unknown as HTMLInputElement);
+let selected = -1;
+
+const current = (): Creature | undefined => world.creatures[0];
+
+function selectCell(i: number): void {
+  const p = current();
+  if (!p) return;
+  selected = i;
+  const v = p.brain.mem[i];
+  edOp.value = String(opOf(v));
+  edJump.value = String(jumpTarget(v));
+  edIdx.value = String(mutationOf(v));
+  const params = paramsOf(v);
+  edParams.forEach((el, k) => { el.value = String(params[k]); });
+  editor.hidden = false;
+  $("edname").textContent = `ячейка ${i}`;
+  syncEditor();
+  paintPanel();
+}
+
+function syncEditor(): void {
+  const op = Number(edOp.value);
+  edJumpBox.hidden = op !== 1;
+  edUse.hidden = op !== 2;
+}
+
+function writeCell(): void {
+  const p = current();
+  if (!p || selected < 0) return;
+  const op = Number(edOp.value);
+  const num = (el: HTMLInputElement, max: number): number =>
+    Math.max(0, Math.min(max, Math.round(Number(el.value) || 0)));
+  p.brain.mem[selected] =
+    op === 1 ? jumpCell(num(edJump, 99))
+    : op === 2 ? useCell(num(edIdx, 99), edParams.map(el => num(el, 99)))
+    : OP_REST;
+  paintPanel();
+}
+
+edOp.addEventListener("change", () => { syncEditor(); writeCell(); });
+for (const el of [edJump, edIdx, ...edParams]) {
+  el.addEventListener("input", writeCell);
+}
+for (const el of [edJump, edIdx, ...edParams]) {
+  el.addEventListener("focus", () => {
+    // clicking into a field should not lose the cell you are editing
+  });
+}
+
+$("edrandom").addEventListener("click", () => {
+  const p = current();
+  if (!p) return;
+  const seat = Math.floor(Math.random() * 1e9);
+  p.brain.mem = randomMemory(mulberry32(seat));
+  p.brain.pc = 0;
+  seedEl.textContent = `🎲 ${seat}`;
+  if (selected >= 0) selectCell(selected);
+  paintPanel();
+});
+
+$("eddemo").addEventListener("click", () => {
+  const p = current();
+  if (!p) return;
+  p.brain.mem = demoMemory();
+  p.brain.pc = 0;
+  seedEl.textContent = "демо";
+  if (selected >= 0) selectCell(selected);
+  paintPanel();
+});
 
 function openPanel(): void {
   const p = world.creatures[0];

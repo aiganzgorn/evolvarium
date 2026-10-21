@@ -10,23 +10,43 @@ import {
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
-// A memory cell is one number: the last digit is the op, the rest is the argument.
-//   0 = rest (costs nothing), 1 = jump to cell <arg>,
-//   2 = use mutation <arg % 10>, action <floor(arg / 10)>.
+// A cell is one decimal number, read in groups of two digits after the first:
+//   0                    rest (costs nothing)
+//   1 tt                 jump to cell tt          100 -> cell 0, 155 -> cell 55
+//   2 ii p1 p2 p3 p4     use mutation ii with four params, each 00..99
+//                        200 = mutation 00, no params
+//                        20101120000 = mutation 01, params 01 12 00 00
+// Trailing zero params may be dropped: 2010112 means the same as 20101120000.
 export const OP_REST = 0;
 export const OP_JUMP = 1;
 export const OP_USE = 2;
+export const PARAMS = 4;
 export const ENERGY_COST: Record<number, number> = {
   [OP_REST]: 0, [OP_JUMP]: JUMP_COST, [OP_USE]: USE_COST,
 };
 
-export const opOf = (cell: number): number => cell % 10;
-export const argOf = (cell: number): number => Math.floor(cell / 10);
-export const mutationOf = (arg: number): number => arg % 10;
-export const actionOf = (arg: number): number => Math.floor(arg / 10);
+export const opOf = (cell: number): number =>
+  cell >= 200 ? OP_USE : cell >= 100 ? OP_JUMP : OP_REST;
 
-// Builds the number that lives in a cell: "use mutation <i>, action <a>".
-export const useCell = (i: number, a = 0): number => OP_USE + (i + a * 10) * 10;
+// "20101120000" -> [1, 1, 12, 0, 0]; an odd tail is padded from the left
+function groups(cell: number): number[] {
+  let digits = String(Math.floor(cell)).slice(1);
+  if (digits.length % 2) digits = "0" + digits;
+  const out: number[] = [];
+  for (let i = 0; i < digits.length; i += 2) out.push(Number(digits.slice(i, i + 2)));
+  return out;
+}
+
+export const mutationOf = (cell: number): number => groups(cell)[0] ?? 0;
+export const paramsOf = (cell: number): number[] => {
+  const g = groups(cell).slice(1);
+  return Array.from({ length: PARAMS }, (_, i) => g[i] ?? 0);
+};
+export const jumpTarget = (cell: number): number => cell % 100;
+
+export const jumpCell = (target: number): number => OP_JUMP * 100 + (target % 100);
+export const useCell = (index: number, params: number[] = []): number =>
+  Number(String(OP_USE) + [index, ...params].map(v => String(v % 100).padStart(2, "0")).join(""));
 
 export type Brain = {
   mem: number[];
@@ -63,29 +83,40 @@ export type World = {
   organics: Organic[];
 };
 
-// The starting program is drawn from the seed: same seed, same creature.
-// One step = hook the ground, swing the body, let go, swing the leg back.
-// The swing reverses every step, so the body stays upright while it walks.
-function createBrain(rng: Rng): Brain {
+// A hand-written walker: fuel, then one step — hook, swing, let go, swing back.
+// The swings cancel, so the body stays upright; the step repeats every 29 ticks.
+export function demoMemory(): number[] {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
   let i = 0;
+  for (let k = 0; k < 20; k++) mem[i++] = useCell(0);           // photosynthesis
+  mem[i++] = useCell(1, [3]);                                   // 03 grab the ground
+  mem[i++] = useCell(1, [2, 48]);                               // 02 turn right 48°
+  mem[i++] = useCell(1, [4]);                                   // 04 let go
+  mem[i++] = useCell(1, [1, 48]);                               // 01 swing the leg back
+  mem[i++] = useCell(1, [3]);                                   // 03 grab again
+  mem[i++] = useCell(1, [1, 48]);                               // body swings the other way
+  mem[i++] = useCell(1, [4]);                                   // 04 let go
+  mem[i++] = useCell(1, [2, 48]);                               // re-aim the leg
+  mem[i] = jumpCell(0);                                         // and start over
+  return mem;
+}
 
-  const photos = 20 + Math.floor(rng() * 5);              // 20..24 turns of light
-  while (i < photos && i < MEM_CELLS - 1) mem[i++] = useCell(0);
-
-  const right = useCell(1, 0), left = useCell(1, 1);
-  const grab = useCell(1, 2), release = useCell(1, 3);
-  const near = 3 + Math.floor(rng() * 2);                 // 3..4 turns per swing
-  const far = near + 1;
-  const step = rng() < 0.5
-    ? [grab, ...Array(far).fill(right), release, ...Array(far).fill(left),
-       grab, ...Array(far).fill(left), release, ...Array(near).fill(right)]
-    : [grab, ...Array(far).fill(left), release, ...Array(far).fill(right),
-       grab, ...Array(far).fill(right), release, ...Array(near).fill(left)];
-  for (const cell of step) if (i < MEM_CELLS - 1) mem[i++] = cell;
-
-  mem[MEM_CELLS - 1] = OP_JUMP;                           // back to the first cell
-  return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } };
+// Random memory from a seed: mostly nonsense, but always with a little fuel.
+export function randomMemory(rng: Rng): number[] {
+  const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
+  for (let i = 0; i < MEM_CELLS; i++) {
+    const r = rng();
+    if (r < 0.55) mem[i] = OP_REST;
+    else if (r < 0.75) mem[i] = useCell(0);                                  // photosynthesis
+    else if (r < 0.95) {
+      const action = 1 + Math.floor(rng() * 4);                              // leg: 01..04
+      const degrees = 3 + Math.floor(rng() * 12);
+      mem[i] = useCell(1, [action, degrees]);
+    } else mem[i] = jumpCell(Math.floor(rng() * MEM_CELLS));                  // jump anywhere
+  }
+  mem[MEM_CELLS - 1] = jumpCell(0);                        // always come back around
+  for (let i = 0; i < 3; i++) mem[i] = useCell(0);         // a bit of fuel to start with
+  return mem;
 }
 
 export function createWorld(seed = 1, count = 1): World {
@@ -101,7 +132,7 @@ export function createWorld(seed = 1, count = 1): World {
       angle: 0,
       size: SIZE,
       genome: { ...BASE_GENOME },
-      brain: createBrain(rng),
+      brain: { mem: randomMemory(rng), pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } },
       mutations: [photosynthesis(), leg()],
     });
   }
@@ -174,19 +205,21 @@ export function stepWorld(world: World): void {
   for (const c of world.creatures) {
     const b = c.brain;
     const cell = b.mem[b.pc];
-    const op = opOf(cell), arg = argOf(cell);
+    const op = opOf(cell);
     let next = (b.pc + 1) % MEM_CELLS;
 
     if (op === OP_JUMP) {
       pay(b, JUMP_COST);
-      next = arg % MEM_CELLS;
+      next = jumpTarget(cell) % MEM_CELLS;
     } else if (op === OP_USE) {
       pay(b, USE_COST);
-      const m = c.mutations[mutationOf(arg)];
-      const act = actionOf(arg);
-      const result = m ? m.act({ self: c, world, light: world.light, action: act }) : 0;
+      const index = mutationOf(cell);
+      const m = c.mutations[index];
+      const result = m
+        ? m.act({ self: c, world, light: world.light, params: paramsOf(cell), packet: b.packet })
+        : 0;
       b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
-      b.packet.last = { label: m ? m.label : `мутации ${mutationOf(arg)} нет`, amount: result };
+      b.packet.last = { label: m ? m.label : `мутации ${index} нет`, amount: result };
     }
     b.pc = next;
     if (b.pc === 0) flush(b);

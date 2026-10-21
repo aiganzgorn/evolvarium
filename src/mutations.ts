@@ -1,12 +1,15 @@
 // Mutations: traits the brain can call. Pure logic only — visuals live in render.ts.
 import type { Creature, World } from "./sim.ts";
-import { LEG_LENGTH, LEG_STEP, LEG_ATTACH, LEG_ATTACH_R } from "./config.ts";
+import { LEG_LENGTH, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R } from "./config.ts";
+
+export type Packet = { energy: number; last: { label: string; amount: number } | null };
 
 export type MutationContext = {
   self: Creature;
   world: World;
   light: number;      // 0..1
-  action: number;     // which of the mutation's actions to run (0 = the base one)
+  params: number[];   // four numbers 00..99 taken from the cell
+  packet: Packet;     // mutations may read and spend it
 };
 
 export type LegState = {
@@ -18,11 +21,11 @@ export type LegState = {
 };
 
 export type Mutation = {
-  id: string;                                     // also the visual key in render.ts
+  id: string;          // also the visual key in render.ts
   label: string;
-  actions: { action: number; label: string }[];    // what the brain can ask for
-  leg?: LegState;                                  // per-creature state, legs only
-  act: (ctx: MutationContext) => number;           // result handed back to the brain
+  hint: string;        // what the params mean, shown in the panel
+  leg?: LegState;      // per-creature state, legs only
+  act: (ctx: MutationContext) => number;   // result handed back to the brain
 };
 
 // --- photosynthesis ----------------------------------------------------------
@@ -30,8 +33,8 @@ export function photosynthesis(): Mutation {
   return {
     id: "photosynthesis",
     label: "Фотосинтез",
-    actions: [{ action: 0, label: "получать свет" }],
-    act: ({ light }) => 2 * light,                 // 2 energy at 100% light, 0 at 0%
+    hint: "параметры не используются",
+    act: ({ light }) => 2 * light,              // 2 energy at 100% light, 0 at 0%
   };
 }
 
@@ -43,25 +46,23 @@ export function leg(): Mutation {
   return {
     id: "leg",
     label: "Ножка",
-    actions: [
-      { action: 0, label: "повернуть вправо" },
-      { action: 1, label: "повернуть влево" },
-      { action: 2, label: "схватить землю" },
-      { action: 3, label: "отпустить землю" },
-    ],
+    hint: "p1: 01 влево, 02 вправо, 03 схватить, 04 отпустить · p2: градусы (0 → 12)",
     leg: { angle: 0, grabbed: false, x: 0, y: 0, length: LEG_LENGTH },
     // state lives on `this`, so a copied mutation (rewind) keeps its own
-    act({ self, action }) {
+    act({ self, params }) {
       const state = this.leg!;
-      if (action === 2) {
+      const action = params[0] ?? 0;
+      const step = ((params[1] || LEG_STEP_DEG) * Math.PI) / 180;
+
+      if (action === 3) {
         const tip = legTip(self, state);
         state.x = tip.x;
         state.y = tip.y;
         state.grabbed = true;
-      } else if (action === 3) {
+      } else if (action === 4) {
         state.grabbed = false;
-      } else {
-        const d = action === 1 ? -LEG_STEP : LEG_STEP;
+      } else if (action === 1 || action === 2) {
+        const d = action === 1 ? -step : step;
         if (state.grabbed) rotateBodyAround(self, state, d);
         else state.angle = Math.max(-Math.PI, Math.min(Math.PI, state.angle + d));
       }

@@ -25,7 +25,7 @@
         color: #6d779e; pointer-events: none; user-select: none;
       }
       #panel {
-        position: fixed; right: 14px; top: 12px; width: 304px;
+        position: fixed; right: 14px; top: 12px; width: 340px;
         max-height: calc(100vh - 24px); overflow: auto;
         padding: 12px 14px 14px;
         background: rgba(13,15,22,.9); border: 1px solid rgba(140,160,220,.18);
@@ -56,8 +56,8 @@
         color: #79dd8c; margin-right: 6px;
       }
       #pmem {
-        display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px;
-        font-size: 11px;
+        display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
+        font-size: 10px; white-space: nowrap;
       }
       .cell {
         text-align: center; padding: 2px 0; border-radius: 3px;
@@ -66,7 +66,22 @@
       .cell.use { color: #79dd8c; background: rgba(121,221,140,.12); }
       .cell.jump { color: #8fb8ff; background: rgba(143,184,255,.12); }
       .cell.pc { outline: 1px solid #ffd76e; color: #ffd76e; background: rgba(255,215,110,.16); }
+      .cell.sel { box-shadow: 0 0 0 1px #8fb8ff inset; }
+      .cell { cursor: pointer; }
       .note { color: #6d779e; }
+      .btns { float: right; display: inline-flex; gap: 4px; }
+      .btns button, #editor select, #editor input {
+        font: inherit; color: #cdd6ff; background: rgba(140,160,220,.1);
+        border: 1px solid rgba(140,160,220,.25); border-radius: 4px; padding: 1px 5px;
+      }
+      .btns button { cursor: pointer; text-transform: none; }
+      .btns button:hover { border-color: #ffd76e; color: #ffd76e; }
+      #editor { margin-top: 8px; text-transform: none; }
+      .legend { color: #5b648a; font-size: 10px; margin-top: 4px; line-height: 1.4; }
+      #editor[hidden], #edjump[hidden], #eduse[hidden] { display: none; }
+      .erow { display: flex; align-items: center; gap: 6px; margin: 3px 0; color: #8f9ac4; }
+      .erow b { color: #ffd76e; font-weight: 600; margin-right: auto; }
+      .erow input[type="number"] { width: 46px; }
     </style>
   </head>
   <body>
@@ -89,8 +104,28 @@
       <div class="psec">мутации</div>
       <div id="pmut"></div>
 
-      <div class="psec">память · <span id="pmemcount">60</span> ячеек</div>
+      <div class="psec">память · <span id="pmemcount">60</span> ячеек
+        <span class="btns"><button id="edrandom" title="случайная память">🎲</button><button id="eddemo" title="демо-шаг">демо</button></span>
+      </div>
       <div id="pmem"></div>
+      <div class="legend">2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка</div>
+      <div id="editor" hidden>
+        <div class="erow"><b id="edname">ячейка 0</b>
+          <select id="edop">
+            <option value="0">отдых</option>
+            <option value="1">прыжок</option>
+            <option value="2">мутация</option>
+          </select>
+        </div>
+        <div class="erow" id="edjump"><label>куда</label><input id="edjumpn" type="number" min="0" max="99" /></div>
+        <div id="eduse">
+          <div class="erow"><label>мутация</label><input id="edidx" type="number" min="0" max="99" /></div>
+          <div class="erow"><label>p1</label><input id="edp1" type="number" min="0" max="99" />
+            <label>p2</label><input id="edp2" type="number" min="0" max="99" />
+            <label>p3</label><input id="edp3" type="number" min="0" max="99" />
+            <label>p4</label><input id="edp4" type="number" min="0" max="99" /></div>
+        </div>
+      </div>
     </div>
     <div id="hint">нажми пробел</div>
     <div id="peek">клик по Плюше — заглянуть в память</div>
