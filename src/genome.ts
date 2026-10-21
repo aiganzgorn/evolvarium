@@ -1,4 +1,5 @@
 // Genome of one creature. Genetics only — no rendering, no DOM.
+// The genes do not affect anything yet: movement is off, so speed/turn have no effect.
 import type { Rng } from "./rng.ts";
 
 export const GENOME_FIELDS = ["speed", "turn", "hue"] as const;
