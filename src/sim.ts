@@ -3,13 +3,13 @@
 import { mulberry32, type Rng } from "./rng.ts";
 import type { Genome } from "./genome.ts";
 import type { Mutation } from "./mutations.ts";
-import { photosynthesis, leg } from "./mutations.ts";
+import { photosynthesis, mouth, push, leg } from "./mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
-  JUMP_COST, USE_COST, LIGHT, ORG_BASE, BASE_GENOME,
+  JUMP_COST, USE_COST, ORG_BASE, BASE_GENOME,
   LIGHT_MIN, LIGHT_MAX, LIGHT_PERIOD, LIGHT_BAND, LEG_MIN, LEG_MAX,
   BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, ORGANIC_GROW, ORGANIC_MAX,
-  ORGANIC_SEED_MIN, ORGANIC_SEED_GROWN, MAX_ORGANICS, ORGANIC_SEED_SHARE, SEED_ENERGY, SEED_DIST, SEED_CROWD,
+  ORGANIC_SEED_MIN, ORGANIC_SEED_GROWN, MAX_ORGANICS, ORGANIC_SEED_SHARE, SEED_ENERGY, SEED_DIST, SEED_CROWD, SEED_NEIGHBOURS, SEED_NEIGHBOURS_R, PUSH_DIST,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
@@ -87,10 +87,10 @@ export type Organic = {
 export type World = {
   rng: Rng;
   tick: number;
-  light: number;      // 0..1, global for now
   creatures: Creature[];
   organics: Organic[];
   nextOrganicId: number;
+  nextCreatureId: number;
 };
 
 // An organic's brain: six turns of light, one seed, and back to the start.
@@ -109,7 +109,7 @@ export function plantMemory(): number[] {
 export function demoMemory(): number[] {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
   let i = 0;
-  for (let k = 0; k < 40; k++) mem[i++] = useCell(0);           // photosynthesis
+  for (let k = 0; k < 20; k++) mem[i++] = useCell(0);           // photosynthesis (a weak trickle)
 
   const turn = (which: number, dir: 1 | 2, deg: number) => { mem[i++] = useCell(which, [dir, deg]); };
   const cycle = (which: number, dir: 1 | 2, other: 1 | 2, deg: number) => {
@@ -124,6 +124,10 @@ export function demoMemory(): number[] {
   };
   cycle(1, 2, 1, 40);                                            // left leg
   cycle(2, 1, 2, 40);                                            // right leg, the other way
+  mem[i++] = useCell(3);                                         // 03 mouth: bite a bush
+  mem[i++] = useCell(3);                                         // ...again
+  mem[i++] = useCell(3);
+  mem[i++] = useCell(4, [PUSH_DIST]);                            // 04 push: shove forward
   mem[i] = jumpCell(0);                                          // and start over
   return mem;
 }
@@ -160,18 +164,18 @@ function bornLegs(rng: Rng): Mutation[] {
 export function createWorld(seed = 1, count = 1): World {
   const rng = mulberry32(seed);
   const world: World = {
-    rng, tick: 0, light: LIGHT, creatures: [], organics: [], nextOrganicId: 0,
+    rng, tick: 0, creatures: [], organics: [], nextOrganicId: 0, nextCreatureId: 0,
   };
   for (let i = 0; i < count; i++) {
     world.creatures.push({
-      id: i,
+      id: world.nextCreatureId++,
       x: W / 2,
       y: H / 2,
       angle: 0,
       size: SIZE,
       genome: { ...BASE_GENOME },
       brain: { mem: randomMemory(rng), pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } },
-      mutations: [photosynthesis(), ...bornLegs(rng)],
+      mutations: [photosynthesis(), ...bornLegs(rng), mouth(), push()],
     });
   }
   // A couple of bushes to start with, scattered by the seed.
@@ -214,22 +218,22 @@ export function lightCenter(world: World): number {
   return ((phase * travel + W / 2 + band / 2) % travel) - band / 2;
 }
 
-// Local light under (x): brightest in the middle of the band, base level outside.
+// Local light under (x): the band gives 100%, the shade gives 10%.
 export function lightAt(world: World, x: number): number {
   const band = W * LIGHT_BAND;
   const d = Math.min(1, Math.abs(x - lightCenter(world)) / (band / 2));
   const glow = 0.5 * (1 + Math.cos(Math.PI * d));    // 1 in the middle, 0 at the edge
-  return Math.max(0, Math.min(1, LIGHT * (LIGHT_MIN + (LIGHT_MAX - LIGHT_MIN) * glow)));
+  return LIGHT_MIN + (LIGHT_MAX - LIGHT_MIN) * glow;
 }
 
 // --- snapshots ---------------------------------------------------------------
 // A whole world state, deep-copied, so the UI can step backwards.
 export type Snapshot = {
   tick: number;
-  light: number;
   creatures: Creature[];
   organics: Organic[];
   nextOrganicId: number;
+  nextCreatureId: number;
 };
 
 // shortcut: the rng's own state is not copied — stepWorld draws no randomness
@@ -238,19 +242,19 @@ export type Snapshot = {
 export function snapshot(world: World): Snapshot {
   return {
     tick: world.tick,
-    light: world.light,
     creatures: world.creatures.map(copyCreature),
     organics: world.organics.map(copyOrganic),
     nextOrganicId: world.nextOrganicId,
+    nextCreatureId: world.nextCreatureId,
   };
 }
 
 export function restore(world: World, s: Snapshot): void {
   world.tick = s.tick;
-  world.light = s.light;
   world.creatures = s.creatures.map(copyCreature);
   world.organics = s.organics.map(copyOrganic);
   world.nextOrganicId = s.nextOrganicId;
+  world.nextCreatureId = s.nextCreatureId;
 }
 
 function copyOrganic(o: Organic): Organic {
@@ -304,9 +308,28 @@ export function stepWorld(world: World): void {
   stepOrganics(world);                                   // plants grow and seed first
   for (const c of world.creatures) {                     // then the fallen become new plants
     if (c.brain.energy > 0) continue;
+    if (world.organics.length >= MAX_ORGANICS) continue; // the field is full
     world.organics.push(organic(world, c.x, c.y, ORG_BASE + Math.max(0, c.brain.energy), SEED_SIZE, plantMemory()));
   }
   world.creatures = world.creatures.filter(c => c.brain.energy > 0);
+
+  if (world.creatures.length === 0) respawn(world);      // the last one dies — a new one arrives
+}
+
+// A fresh Плюша, hatched from a hash of the tick: no shared rng, so rewind stays exact.
+function respawn(world: World): void {
+  const rng = mulberry32(world.tick * 2654435761 + world.nextCreatureId * 40503);
+  const x = SIZE + rng() * (W - SIZE * 2);
+  const y = SIZE + rng() * (H - SIZE * 2);
+  world.creatures.push({
+    id: world.nextCreatureId++,
+    x, y,
+    angle: 0,
+    size: SIZE,
+    genome: { ...BASE_GENOME },
+    brain: { mem: randomMemory(rng), pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } },
+    mutations: [photosynthesis(), ...bornLegs(rng), mouth(), push()],
+  });
 }
 
 function organic(world: World, x: number, y: number, energy: number, size: number, mem: number[]): Organic {
@@ -328,7 +351,8 @@ function stepOrganics(world: World): void {
       continue;
     }
     if (op === OP_USE) {
-      o.energy = Math.min(ORGANIC_MAX, o.energy - USE_COST + 2 * lightAt(world, o.x));
+      // plants do not pay for their own light; they just grow toward the sun
+      o.energy = Math.min(ORGANIC_MAX, o.energy + 2 * lightAt(world, o.x));
     } else if (op === OP_SEED) {
       plantSeed(world, o);
     }
@@ -352,6 +376,11 @@ function plantSeed(world: World, o: Organic): void {
   const crowded = world.organics.some(p =>
     Math.hypot(p.x - x, p.y - y) < ORGANIC_SIZE * SEED_CROWD);
   if (crowded) return;                                                     // no room here
+
+  const neighbours = world.organics.filter(p =>
+    Math.hypot(p.x - x, p.y - y) < SEED_NEIGHBOURS_R).length;
+  if (neighbours >= SEED_NEIGHBOURS) return;                               // this patch is full
+
   world.organics.push(organic(world, x, y, left, SEED_SIZE, plantMemory()));
 }
 

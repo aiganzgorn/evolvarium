@@ -1,16 +1,17 @@
 // Headless self-check of the pure simulation core.
 import assert from "node:assert/strict";
 import {
-  createWorld, stepWorld, snapshot, restore, demoMemory, randomMemory, lightAt, lightCenter,
+  createWorld, stepWorld, snapshot, restore, demoMemory, randomMemory, lightAt, lightCenter, plantMemory,
   opOf, mutationOf, paramsOf, jumpTarget, jumpCell, useCell,
   OP_REST, OP_JUMP, OP_USE, OP_SEED,
 } from "../src/sim.ts";
 import { mulberry32 } from "../src/rng.ts";
 import { attachPoint, legTip } from "../src/mutations.ts";
 import {
-  W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT, ORG_BASE,
+  W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT_MIN, LIGHT_MAX, ORG_BASE,
+  EAT_RATE, EAT_RANGE, PUSH_DIST,
   LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
-  BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, MAX_ORGANICS,
+  BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, MAX_ORGANICS, SEED_NEIGHBOURS,
 } from "../src/config.ts";
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
@@ -57,8 +58,7 @@ assert.equal(p.size, SIZE, "размер задан в координатах");
 assert.equal(p.brain.mem.length, MEM_CELLS, "память на 60 ячеек");
 assert.equal(p.brain.energy, START_ENERGY, "энергия на старте");
 assert.equal(p.brain.packet.energy, 0, "пакет пуст");
-assert.equal(a.light, LIGHT, "глобальный свет");
-assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg", "leg"], "фотосинтез и две ножки");
+assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg", "leg", "mouth", "push"], "фотосинтез, две ножки, рот, толчок");
 assert.equal(a.organics.length, BUSHES, "на старте пара кустов");
 for (const o of a.organics) {
   assert.equal(o.mem.length, ORGANIC_CELLS, "у органики восемь ячеек");
@@ -188,35 +188,31 @@ dying.creatures[0].brain.mem.fill(jumpCell(0));          // jump to itself, 1 en
 const dieAt = START_ENERGY / JUMP_COST;
 for (let i = 0; i < dieAt - 1; i++) stepWorld(dying);
 assert.equal(dying.creatures.length, 1, "ещё жива перед последним тиком");
+assert.equal(dying.creatures[0].id, 0, "это всё ещё первая Плюша");
 stepWorld(dying);
-assert.equal(dying.creatures.length, 0, "на нуле энергии умерла");
 assert.equal(dying.tick, dieAt, "умерла ровно на своём тике");
 assert.equal(dying.organics.length, 1, "оставила органику");
 assert.equal(dying.organics[0].energy, ORG_BASE, "органика = ORG_BASE + оставшаяся энергия");
 assert.equal(dying.organics[0].size, SEED_SIZE, "и начинает как семечко");
 
-// plants outlive her: the tick keeps going while anything is alive
+// the last one died — a fresh one arrives
+assert.equal(dying.creatures.length, 1, "вместо неё родилась новая Плюша");
+assert.equal(dying.creatures[0].id, 1, "с новым id");
+assert.equal(dying.creatures[0].brain.energy, START_ENERGY, "и полной энергией");
+assert.ok(dying.creatures[0].x >= SIZE / 2 && dying.creatures[0].x <= W - SIZE / 2, "внутри мира по x");
+assert.ok(dying.creatures[0].y >= SIZE / 2 && dying.creatures[0].y <= H - SIZE / 2, "и по y");
+
+// the world keeps turning while anything is alive
 const afterDeath = dying.tick;
 for (let i = 0; i < 200; i++) stepWorld(dying);
-assert.equal(dying.tick, afterDeath + 200, "мир живёт, пока растёт органика");
-assert.ok(dying.organics[0].size > SEED_SIZE, "и органика подрастает");
-
-// nothing alive at all — the world stops
-const empty = createWorld(1);
-empty.organics.length = 0;
-empty.creatures[0].brain.energy = 0;
-stepWorld(empty);
-assert.equal(empty.creatures.length, 0, "плюши нет");
-assert.equal(empty.organics.length, 1, "осталась органика");
-empty.organics.length = 0;
-const stoppedAt = empty.tick;
-stepWorld(empty);
-assert.equal(empty.tick, stoppedAt, "без живых тик стоит");
+assert.equal(dying.tick, afterDeath + 200, "мир живёт дальше");
+assert.ok(dying.creatures.length <= 1, "плюша одна");
+assert.ok(dying.organics.every(o => o.energy > 0), "у живой органики энергия положительная");
 
 // --- two legs: mirrored hinges, one foot on the ground at a time ---------------
 const tl = createWorld(5);
 const tc = tl.creatures[0];
-assert.deepEqual(tc.mutations.map(m => m.id), ["photosynthesis", "leg", "leg"], "две ножки");
+assert.deepEqual(tc.mutations.map(m => m.id), ["photosynthesis", "leg", "leg", "mouth", "push"], "две ножки, рот и толчок");
 const [left, right] = [tc.mutations[1], tc.mutations[2]];
 assert.ok(left.leg.attach < right.leg.attach, "петли зеркальные");
 for (const m of [left, right]) {
@@ -251,7 +247,20 @@ for (let i = 0; i < 40; i++) eDo([2, 40]);               // and try to drag the 
 assert.ok(ec.x <= W - ec.size / 2 + 1e-9, `тело не вышло за правый край (${ec.x.toFixed(1)})`);
 assert.ok(ec.x >= ec.size / 2 - 1e-9 && ec.y >= ec.size / 2 - 1e-9 && ec.y <= H - ec.size / 2 + 1e-9, "и не вышло за остальные");
 
-// --- plants: they grow, seed, and stay inside the world -----------------------
+// --- a crowded patch stops reproducing --------------------------------------
+const crowd = createWorld(9);
+crowd.creatures.length = 0;
+crowd.organics.length = 0;
+const addBush = (x, y, mem) =>
+  crowd.organics.push({ id: crowd.nextOrganicId++, x, y, energy: 60, size: ORGANIC_SIZE, mem, pc: 0 });
+addBush(W / 2, H / 2, new Array(ORGANIC_CELLS).fill(OP_SEED));                    // tries to seed every tick
+for (let k = 0; k < SEED_NEIGHBOURS; k++) {
+  addBush(W / 2 + 30 + k * 20, H / 2, new Array(ORGANIC_CELLS).fill(OP_REST));
+}
+const crowdedBefore = crowd.organics.length;
+for (let i = 0; i < 40; i++) stepWorld(crowd);
+assert.equal(crowd.organics.length, crowdedBefore,
+  `рядом уже ${SEED_NEIGHBOURS} куста — новые семена не появляются (${crowd.organics.length})`);
 const garden = createWorld(3);
 garden.creatures[0].brain.energy = 0;                    // she dies, the garden stays
 for (let i = 0; i < 150; i++) stepWorld(garden);
@@ -265,6 +274,30 @@ for (const o of garden.organics) {
   assert.ok(o.energy > 0, "живой куст не в минусе");
   assert.ok(o.size <= ORGANIC_SIZE, "куст не перерастает себя");
 }
+
+// --- mouth: bites a bush and takes its energy --------------------------------
+const fed = createWorld(1);
+fed.organics.length = 0;
+fed.organics.push({ id: 99, x: W / 2 + 30, y: H / 2, energy: 40, size: ORGANIC_SIZE, mem: plantMemory(), pc: 0 });
+const eater = fed.creatures[0];
+const mouthMut = eater.mutations[3];
+const bite = mouthMut.act({ self: eater, world: fed, light: 0.5, params: [0, 0, 0, 0], packet: { energy: 0, last: null } });
+assert.equal(bite, EAT_RATE, "кусает не больше EAT_RATE");
+assert.equal(fed.organics[0].energy, 40 - EAT_RATE, "у куста стало меньше энергии");
+fed.organics[0].x = W - 10;                              // far away now
+assert.equal(mouthMut.act({ self: eater, world: fed, light: 0.5, params: [], packet: { energy: 0, last: null } }), 0,
+  "далеко — не достаёт");
+
+// --- push: a shove moves the body, and the walls still hold -------------------
+const shoved = createWorld(1);
+const body = shoved.creatures[0];
+const pushMut = body.mutations[4];
+const beforePush = { x: body.x, y: body.y };
+pushMut.act({ self: body, world: shoved, light: 0.5, params: [0], packet: { energy: 0, last: null } });
+assert.ok(near(body.x - beforePush.x, PUSH_DIST), "толчок сдвинул тело вперёд");
+body.x = W - body.size / 2 - 2;
+pushMut.act({ self: body, world: shoved, light: 0.5, params: [100], packet: { energy: 0, last: null } });
+assert.ok(body.x <= W - body.size / 2, "даже сильный толчок не выносит за край");
 
 // --- determinism -------------------------------------------------------------
 const x = createWorld(42), y = createWorld(42);

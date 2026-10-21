@@ -12,17 +12,16 @@ export const SIZE = 40;             // diameter in world units
 // brain
 export const MEM_CELLS = 60;
 export const START_ENERGY = 100;
-export const HEAD_MAX = 150;        // the head cannot hold more
+export const HEAD_MAX = 1000;       // the head cannot hold more
 export const PACKET_MAX = 50;       // the packet cannot carry more
 export const JUMP_COST = 1;         // energy per "go to cell N"
 export const USE_COST = 1;          // energy per "use mutation"
 
 // light (a moving band sweeps left to right)
-export const LIGHT = 0.85;          // base level, 0..1
-export const LIGHT_MIN = 0.88;      // multiplier far from the bright band
-export const LIGHT_MAX = 1.28;      // multiplier in the middle of it
+export const LIGHT_MIN = 0.10;      // darkest: 10% of full light
+export const LIGHT_MAX = 1.00;      // brightest: 100%
 export const LIGHT_PERIOD = 240;    // ticks for one full sweep (12 s at 20 Hz)
-export const LIGHT_BAND = 0.62;     // bright band width, as a share of the world
+export const LIGHT_BAND = 0.9;      // bright band width, as a share of the world (a longer day)
 
 // leg mutation
 export const LEG_LENGTH = 70;                 // world units, fixed at birth
@@ -50,6 +49,13 @@ export const ORGANIC_SEED_SHARE = 0.5; // half of the energy is spent on a seed
 export const SEED_ENERGY = 0.1;        // the seed gets a tenth of the parent's energy
 export const SEED_DIST = 46;           // how far the seed lands from the parent
 export const SEED_CROWD = 1.6;         // no seed if another bush is closer than size × this
+export const SEED_NEIGHBOURS = 3;      // ...or if this many bushes already grow nearby
+export const SEED_NEIGHBOURS_R = 140;  // "nearby" means within this distance
+
+// feeding and shoving
+export const EAT_RANGE = 30;        // how close a bush must be to take a bite
+export const EAT_RATE = 20;         // most energy one bite can take
+export const PUSH_DIST = 28;        // how far one shove moves the body
 
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left

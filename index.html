@@ -45,6 +45,7 @@
         border-top: 1px solid rgba(140,160,220,.12); padding-top: 8px;
       }
       .prow { display: flex; justify-content: space-between; gap: 8px; }
+      .prow[hidden] { display: none; }
       .prow span:last-child { color: #ffd76e; }
       .mut { margin: 2px 0; }
       .mut .idx {
@@ -66,6 +67,7 @@
       .cell.use { color: #79dd8c; background: rgba(121,221,140,.12); }
       .cell.jump { color: #8fb8ff; background: rgba(143,184,255,.12); }
       .cell.pc { outline: 1px solid #ffd76e; color: #ffd76e; background: rgba(255,215,110,.16); }
+      .cell.seed { color: #ffd76e; background: rgba(255,215,110,.12); }
       .cell.sel { box-shadow: 0 0 0 1px #8fb8ff inset; }
       .cell { cursor: pointer; }
       .note { color: #6d779e; }
@@ -78,7 +80,7 @@
       .btns button:hover { border-color: #ffd76e; color: #ffd76e; }
       #editor { margin-top: 8px; text-transform: none; }
       .legend { color: #5b648a; font-size: 10px; margin-top: 4px; line-height: 1.4; }
-      #editor[hidden], #edjump[hidden], #eduse[hidden] { display: none; }
+      #editor[hidden], #edjump[hidden], #eduse[hidden], #ppacketbox[hidden], #pmutbox[hidden], #pmemtools[hidden] { display: none; }
       .erow { display: flex; align-items: center; gap: 6px; margin: 3px 0; color: #8f9ac4; }
       .erow b { color: #ffd76e; font-weight: 600; margin-right: auto; }
       .erow input[type="number"] { width: 46px; }
@@ -90,24 +92,29 @@
       <div>🐾 <b>Плюша</b> · <span id="tick">тик 0</span> · существ <span id="n">0</span> · энергия <span id="energy">0</span> · пакет <span id="packet">0</span></div>
       <div>свет <span id="light">75%</span> · органика <span id="org">0</span> · история <span id="hist">0</span> · seed <span id="seed">1</span> · <span id="state">пауза</span></div>    </div>
     <div id="panel" hidden>
-      <div class="phead"><span>Плюша</span><span id="pclose">×</span></div>
+      <div class="phead"><span id="pname">Плюша</span><span id="pclose">×</span></div>
       <div class="prow"><span>энергия</span><span id="penergy">—</span></div>
-      <div class="prow"><span>потолок головы</span><span id="pmax">—</span></div>
+      <div class="prow"><span id="pmaxlabel">потолок головы</span><span id="pmax">—</span></div>
       <div class="prow"><span>указатель</span><span id="ppc">—</span></div>
+      <div class="prow" id="psizerow" hidden><span>размер</span><span id="psize">—</span></div>
 
-      <div class="psec">пакет</div>
-      <div class="prow"><span>энергия</span><span id="ppacket">—</span></div>
-      <div class="prow"><span>потолок</span><span id="ppackmax">—</span></div>
-      <div class="prow"><span>последний вклад</span><span id="plast">—</span></div>
+      <div id="ppacketbox">
+        <div class="psec">пакет</div>
+        <div class="prow"><span>энергия</span><span id="ppacket">—</span></div>
+        <div class="prow"><span>потолок</span><span id="ppackmax">—</span></div>
+        <div class="prow"><span>последний вклад</span><span id="plast">—</span></div>
+      </div>
 
-      <div class="psec">мутации</div>
-      <div id="pmut"></div>
+      <div id="pmutbox">
+        <div class="psec">мутации</div>
+        <div id="pmut"></div>
+      </div>
 
       <div class="psec">память · <span id="pmemcount">60</span> ячеек
-        <span class="btns"><button id="edrandom" title="случайная память">🎲</button><button id="eddemo" title="демо-шаг">демо</button></span>
+        <span class="btns" id="pmemtools"><button id="edrandom" title="случайная память">🎲</button><button id="eddemo" title="демо-шаг">демо</button></span>
       </div>
       <div id="pmem"></div>
-      <div class="legend">2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка</div>
+      <div class="legend" id="legend">2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка</div>
       <div id="editor" hidden>
         <div class="erow"><b id="edname">ячейка 0</b>
           <select id="edop">

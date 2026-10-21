@@ -1,11 +1,13 @@
 // Rendering only — reads the world, never mutates it.
-import { W, H, SIZE, LIGHT, LIGHT_BAND, LIGHT_PERIOD } from "./config.ts";
+import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD } from "./config.ts";
 import type { Creature, Organic, World } from "./sim.ts";
 import { lightCenter } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
 import { attachPoint, legTip, type LegState } from "./mutations.ts";
 
 const BG = "#0d0f16";
+
+export type Selection = { kind: "creature" | "organic"; id: number } | null;
 
 // One place converts world units → pixels, so clicks and drawing always agree.
 export function viewTransform(vw: number, vh: number): { s: number; ox: number; oy: number } {
@@ -14,7 +16,7 @@ export function viewTransform(vw: number, vh: number): { s: number; ox: number; 
 }
 
 export function draw(
-  ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number, selected: number | null = null,
+  ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number, selected: Selection = null,
 ): void {
   const { s, ox, oy } = viewTransform(vw, vh);
 
@@ -22,8 +24,12 @@ export function draw(
   ctx.fillRect(0, 0, vw, vh);
   light(ctx, world, vw, vh, ox, s);
 
-  for (const o of world.organics) organic(ctx, o, ox, oy, s);
-  for (const c of world.creatures) blob(ctx, c, ox, oy, s, world.tick, c.id === selected);
+  for (const o of world.organics) {
+    organic(ctx, o, ox, oy, s, selected?.kind === "organic" && selected.id === o.id);
+  }
+  for (const c of world.creatures) {
+    blob(ctx, c, ox, oy, s, world.tick, selected?.kind === "creature" && selected.id === c.id);
+  }
 }
 
 // The moving light band: a soft vertical wash that sweeps left to right.
@@ -34,25 +40,31 @@ function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: numb
 
   const g = ctx.createLinearGradient(centre - half, 0, centre + half, 0);
   g.addColorStop(0, "rgba(255,240,190,0)");
-  g.addColorStop(0.5, `rgba(255,240,190,${(0.34 * LIGHT).toFixed(3)})`);
+  g.addColorStop(0.5, `rgba(255,240,190,${(0.34 * LIGHT_MAX).toFixed(3)})`);
   g.addColorStop(1, "rgba(255,240,190,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, vw, vh);
 
   // a faint top-down wash so the top of the screen reads as sky
   const top = ctx.createLinearGradient(0, 0, 0, vh);
-  top.addColorStop(0, `rgba(255,240,190,${(0.07 * LIGHT).toFixed(3)})`);
+  top.addColorStop(0, `rgba(255,240,190,${(0.07 * LIGHT_MAX).toFixed(3)})`);
   top.addColorStop(1, "rgba(255,240,190,0)");
   ctx.fillStyle = top;
   ctx.fillRect(0, 0, vw, vh);
 }
 
-function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number): void {
+function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number, selected: boolean): void {
   const cx = ox + o.x * s, cy = oy + o.y * s;
   const r = Math.max(2, o.size * s);
 
   ctx.fillStyle = "rgba(120,220,150,0.16)";
   ctx.beginPath(); ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2); ctx.fill();
+
+  if (selected) {
+    ctx.strokeStyle = "rgba(255,215,110,0.75)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.55, 0, Math.PI * 2); ctx.stroke();
+  }
 
   // a little cluster of leaves, so a bush reads as a plant rather than a stain
   ctx.fillStyle = "rgba(88,186,116,0.85)";
@@ -167,6 +179,39 @@ function drawMutation(ctx: CanvasRenderingContext2D, id: string, cx: number, cy:
       ctx.lineCap = "butt";
       leaf(ctx, 0, tipY, r * 0.52, -0.55 + sway);
       leaf(ctx, 0, tipY, r * 0.52, Math.PI + 0.55 - sway);
+      ctx.restore();
+      break;
+    }
+    case "mouth": {
+      // a small mouth on the front of the body, opened and closed with the tick
+      const open = 0.35 + 0.25 * Math.sin(tick * 0.35);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillStyle = "rgba(20,26,40,0.85)";
+      ctx.beginPath();
+      ctx.ellipse(r * 0.62, 0, r * 0.1, r * 0.26 * open + r * 0.05, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,215,110,0.5)";
+      ctx.lineWidth = Math.max(1, r * 0.05);
+      ctx.beginPath();
+      ctx.ellipse(r * 0.62, 0, r * 0.1, r * 0.26 * open + r * 0.05, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+      break;
+    }
+    case "push": {
+      // a little tail fin at the back: it pushes the body the way it faces
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(angle);
+      ctx.fillStyle = "rgba(143,184,255,0.55)";
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.9, 0);
+      ctx.lineTo(-r * 1.5, -r * 0.34);
+      ctx.lineTo(-r * 1.5, r * 0.34);
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
       break;
     }

@@ -1,6 +1,6 @@
 // Mutations: traits the brain can call. Pure logic only — visuals live in render.ts.
 import type { Creature, World } from "./sim.ts";
-import { W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD } from "./config.ts";
+import { W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD, EAT_RANGE, EAT_RATE, PUSH_DIST } from "./config.ts";
 
 export type Packet = { energy: number; last: { label: string; amount: number } | null };
 
@@ -76,6 +76,47 @@ export function leg(side: -1 | 1 = -1): Mutation {
           if (tipFits(self, state, next)) state.angle = next;   // no reaching past the edge
         }
       }
+      return 0;
+    },
+  };
+}
+
+// --- mouth -------------------------------------------------------------------
+// Bites the nearest bush: takes some of its energy and hands it to the brain.
+// A much better meal than standing in the light.
+export function mouth(): Mutation {
+  return {
+    id: "mouth",
+    label: "Рот",
+    hint: `кусает ближайший куст в радиусе ${EAT_RANGE}, до ${EAT_RATE} энергии`,
+    act({ self, world }) {
+      let best: World["organics"][number] | null = null;
+      let bestD = Infinity;
+      for (const o of world.organics) {
+        const d = Math.hypot(o.x - self.x, o.y - self.y) - o.size;
+        if (d <= EAT_RANGE && d < bestD) { best = o; bestD = d; }
+      }
+      if (!best) return 0;
+      const bite = Math.min(best.energy, EAT_RATE);
+      best.energy -= bite;
+      return bite;
+    },
+  };
+}
+
+// --- push --------------------------------------------------------------------
+// A shove with no legs: the body slides the way it faces. Cheap and dumb, but a
+// way to travel when there is nothing to hold on to.
+export function push(): Mutation {
+  return {
+    id: "push",
+    label: "Толчок",
+    hint: `сдвигает тело вперёд на p1 (по умолчанию ${PUSH_DIST})`,
+    act({ self, params }) {
+      const dist = params[0] || PUSH_DIST;
+      const r = self.size / 2;
+      self.x = Math.max(r, Math.min(W - r, self.x + Math.cos(self.angle) * dist));
+      self.y = Math.max(r, Math.min(H - r, self.y + Math.sin(self.angle) * dist));
       return 0;
     },
   };

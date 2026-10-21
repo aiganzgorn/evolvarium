@@ -5,8 +5,11 @@ import {
   type Creature, type Snapshot,
 } from "./sim.ts";
 import { mulberry32 } from "./rng.ts";
-import { draw, viewTransform } from "./render.ts";
-import { TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W } from "./config.ts";
+import { draw, viewTransform, type Selection } from "./render.ts";
+import {
+  TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W,
+  ORGANIC_MAX, ORGANIC_SIZE, ORGANIC_SEED_MIN,
+} from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
 const ctx = canvas.getContext("2d")!;
@@ -23,7 +26,7 @@ const seed = Number(new URLSearchParams(location.search).get("seed")) || 1;
 const world = createWorld(seed);
 seedEl.textContent = String(seed);
 nEl.textContent = String(world.creatures.length);
-lightEl.textContent = `${Math.round(world.light * 100)}%`;
+lightEl.textContent = `${Math.round(lightAt(world, W / 2) * 100)}%`;
 
 function resize(): void {
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -39,19 +42,33 @@ resize();
 const fmt = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 // --- panel -------------------------------------------------------------------
-const cells: HTMLDivElement[] = [];
-pMemCount.textContent = String(MEM_CELLS);
-for (let i = 0; i < MEM_CELLS; i++) {
-  const d = document.createElement("div");
-  d.className = "cell";
-  d.dataset.i = String(i);
-  d.textContent = "0";
-  d.addEventListener("click", () => selectCell(i));
-  pMem.append(d);
-  cells.push(d);
-}
+// Selection is either Плюша or a bush — both have a brain, so both can be inspected.
+type Sel = Selection;
+let sel: Sel = null;
 
-const OPS: Record<number, string> = { 0: "отдых", 1: "прыжок", 2: "мутация" };
+const cells: HTMLDivElement[] = [];
+let cellCount = 0;
+
+function buildCells(n: number, editable: boolean): void {
+  if (cellCount === n) { gridEditable = editable; return; }
+  cellCount = n;
+  gridEditable = editable;
+  cells.length = 0;
+  pMem.replaceChildren();
+  for (let i = 0; i < n; i++) {
+    const d = document.createElement("div");
+    d.className = "cell";
+    d.dataset.i = String(i);
+    d.textContent = "0";
+    d.addEventListener("click", () => { if (gridEditable) selectCell(i); });
+    pMem.append(d);
+    cells.push(d);
+  }
+  pMemCount.textContent = String(n);
+}
+let gridEditable = true;
+
+const OPS: Record<number, string> = { 0: "отдых", 1: "прыжок", 2: "мутация", 3: "семя" };
 
 function fillMutations(p: Creature): void {
   pMut.replaceChildren();
@@ -86,36 +103,60 @@ function fillMutations(p: Creature): void {
   });
 }
 
-// A cell as it reads in the grid: "2·01" (mutation), "1→07" (jump), "·" (rest).
+// A cell as it reads in the grid: "2·01" (mutation), "1→07" (jump), "семя", "·".
 function cellLabel(v: number): string {
   const op = opOf(v);
+  if (op === 3) return "семя";
   if (op === 2) return `2·${String(mutationOf(v)).padStart(2, "0")}`;
   if (op === 1) return `1→${String(jumpTarget(v)).padStart(2, "0")}`;
   return "·";
 }
 
 function paintPanel(): void {
-  const p = world.creatures[0];
-  if (!p) { panel.hidden = true; return; }
-  const b = p.brain;
+  const creature = sel?.kind === "creature" ? world.creatures.find(c => c.id === sel!.id) : undefined;
+  const plant = sel?.kind === "organic" ? world.organics.find(o => o.id === sel!.id) : undefined;
+  if (!creature && !plant) { panel.hidden = true; return; }
 
-  pEnergy.textContent = fmt(b.energy);
-  pMax.textContent = String(HEAD_MAX);
-  pPc.textContent = `${b.pc} · ${OPS[opOf(b.mem[b.pc])] ?? "?"}`;
-  pPacket.textContent = fmt(b.packet.energy);
-  pPackMax.textContent = String(PACKET_MAX);
-  pLast.textContent = b.packet.last
-    ? `${b.packet.last.label} ${b.packet.last.amount >= 0 ? "+" : ""}${fmt(b.packet.last.amount)}`
-    : "—";
+  const mem = creature ? creature.brain.mem : plant!.mem;
+  const pc = creature ? creature.brain.pc : plant!.pc;
 
-  for (let i = 0; i < MEM_CELLS; i++) {
-    const v = b.mem[i], op = opOf(v), el = cells[i];
+  $("pname").textContent = creature ? "Плюша" : `Куст #${plant!.id}`;
+  pEnergy.textContent = fmt(creature ? creature.brain.energy : plant!.energy);
+  $("pmaxlabel").textContent = creature ? "потолок головы" : "прочность";
+  pMax.textContent = String(creature ? HEAD_MAX : ORGANIC_MAX);
+  pPc.textContent = `${pc} · ${OPS[opOf(mem[pc])] ?? "?"}`;
+
+  $("ppacketbox").hidden = !creature;
+  $("pmutbox").hidden = !creature;
+  $("pmemtools").hidden = !creature;
+  if (creature) {
+    const b = creature.brain;
+    pPacket.textContent = fmt(b.packet.energy);
+    pPackMax.textContent = String(PACKET_MAX);
+    pLast.textContent = b.packet.last
+      ? `${b.packet.last.label} ${b.packet.last.amount >= 0 ? "+" : ""}${fmt(b.packet.last.amount)}`
+      : "—";
+  }
+  if (plant) {
+    const row = $("pmut");
+    row.replaceChildren();
+    row.hidden = false;
+    const size = document.createElement("div");
+    size.className = "mut";
+    size.textContent = `размер ${Math.round(plant.size)} / ${ORGANIC_SIZE} · семечко с ${ORGANIC_SEED_MIN}`;
+    row.append(size);
+  }
+
+  buildCells(mem.length, !!creature);
+  for (let i = 0; i < mem.length; i++) {
+    const v = mem[i], op = opOf(v), el = cells[i];
     const text = cellLabel(v);
     if (el.textContent !== text) el.textContent = text;
-    const cls = "cell" + (op === 2 ? " use" : op === 1 ? " jump" : "") +
-      (i === b.pc ? " pc" : "") + (i === selected ? " sel" : "");
+    const cls = "cell" + (op === 3 ? " seed" : op === 2 ? " use" : op === 1 ? " jump" : "") +
+      (i === pc ? " pc" : "") + (i === selected ? " sel" : "");
     if (el.className !== cls) el.className = cls;
   }
+  if (!creature) editor.hidden = true;
 }
 
 // --- cell editor -------------------------------------------------------------
@@ -194,29 +235,38 @@ $("eddemo").addEventListener("click", () => {
   paintPanel();
 });
 
-function openPanel(): void {
-  const p = world.creatures[0];
-  if (!p) return;
-  fillMutations(p);
+function openPanel(next: Sel): void {
+  sel = next;
+  selected = -1;
+  if (next?.kind === "creature") {
+    const p = world.creatures.find(c => c.id === next.id);
+    if (p) fillMutations(p);
+  }
   panel.hidden = false;
   paintPanel();
 }
 
-let peekOpen = false;
-$("pclose").addEventListener("click", () => { peekOpen = false; panel.hidden = true; });
+$("pclose").addEventListener("click", () => { sel = null; panel.hidden = true; });
 
 canvas.addEventListener("click", (e) => {
-  const p = world.creatures[0];
-  if (!p) return;
   const { s, ox, oy } = viewTransform(innerWidth, innerHeight);
   const wx = (e.clientX - ox) / s, wy = (e.clientY - oy) / s;
-  if (Math.hypot(wx - p.x, wy - p.y) <= p.size / 2) {
-    peekOpen = !peekOpen;
-    if (peekOpen) openPanel(); else panel.hidden = true;
-  } else {
-    peekOpen = false;
+
+  const creature = world.creatures[0];
+  const plant = [...world.organics].reverse().find(o => Math.hypot(wx - o.x, wy - o.y) <= o.size * 1.2);
+
+  const next: Sel =
+    creature && Math.hypot(wx - creature.x, wy - creature.y) <= creature.size / 2
+      ? { kind: "creature", id: creature.id }
+      : plant ? { kind: "organic", id: plant.id } : null;
+
+  if (!next) { sel = null; panel.hidden = true; return; }
+  if (sel && sel.kind === next.kind && sel.id === next.id) {   // second click closes it
+    sel = null;
     panel.hidden = true;
+    return;
   }
+  openPanel(next);
 });
 
 // --- loop --------------------------------------------------------------------
@@ -281,11 +331,11 @@ function frame(now: number): void {
   let guard = 0;                       // never freeze on a long tab switch
   while (acc >= TICK_MS && guard++ < 5) { stepForward(); acc -= TICK_MS; }
 
-  draw(ctx, world, innerWidth, innerHeight, peekOpen ? world.creatures[0]?.id ?? null : null);
+  draw(ctx, world, innerWidth, innerHeight, sel);
   if (world.tick !== shownTick) {
     shownTick = world.tick;
     tickEl.textContent = `тик ${world.tick}`;
-    if (peekOpen) paintPanel();
+    if (sel) paintPanel();
   }
 
   const p = world.creatures[0];
