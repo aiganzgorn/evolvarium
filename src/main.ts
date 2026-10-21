@@ -64,6 +64,12 @@ function fillMutations(p: Creature): void {
     const name = document.createElement("b");
     name.textContent = m.label;
     head.append(idx, name);
+    if (m.leg) {
+      const size = document.createElement("span");
+      size.className = "note";
+      size.textContent = ` · ${Math.round(m.leg.length)} ед.`;
+      head.append(size);
+    }
     pMut.append(head);
 
     for (const a of m.actions) {

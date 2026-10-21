@@ -29,11 +29,11 @@ assert.equal(p.brain.energy, START_ENERGY, "энергия на старте");
 assert.equal(p.brain.packet.energy, 0, "пакет пуст");
 assert.equal(a.light, LIGHT, "глобальный свет");
 assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg"], "две мутации");
-assert.equal(opOf(p.brain.mem[0]), OP_USE, "первая ячейка — использование мутации");
-assert.equal(mutationOf(argOf(p.brain.mem[0])), 0, "это фотосинтез");
-assert.equal(actionOf(argOf(p.brain.mem[0])), 0, "базовое действие");
-assert.equal(p.brain.mem[10], useCell(1, 2), "десятая ячейка — схватить землю");
-assert.equal(p.brain.mem[15], useCell(1, 3), "пятнадцатая — отпустить землю");
+assert.equal(opOf(p.brain.mem[0]), OP_USE, "программа начинается с фотосинтеза");
+assert.equal(mutationOf(argOf(p.brain.mem[0])), 0, "первая ячейка — мутация 0");
+assert.ok(p.brain.mem.includes(useCell(1, 2)), "в программе есть захват земли");
+assert.ok(p.brain.mem.includes(useCell(1, 3)), "и отпускание");
+assert.equal(p.brain.mem.filter(v => opOf(v) === OP_JUMP).length, 1, "ровно один прыжок");
 assert.equal(p.brain.mem[MEM_CELLS - 1], OP_JUMP, "последняя ячейка — прыжок в начало");
 
 // --- photosynthesis: 2 energy at 100% light, so 1.5 at 75% --------------------
@@ -51,6 +51,7 @@ const doAction = (action) => legMut.act({ self: c, world: lw, light: lw.light, a
 const leg = legMut.leg;
 
 assert.ok(leg && !leg.grabbed, "ножка есть и землю не держит");
+assert.equal(leg.length, LEG_LENGTH, "длина задана при рождении");
 assert.equal(leg.angle, 0, "стартовый угол");
 
 const startTip = legTip(c, leg);
@@ -86,14 +87,38 @@ const freeBefore = { x: c2.x, y: c2.y };
 act2(0);
 assert.ok(near(c2.x, freeBefore.x) && near(c2.y, freeBefore.y), "без захвата тело больше не едет");
 
-// --- a full pass of the starting program: photosynthesis pays for the leg -----
+// length belongs to the mutation, not to the world
+const lw3 = createWorld(5);
+const c3 = lw3.creatures[0], m3 = c3.mutations[1];
+m3.leg.length = 140;
+const t3 = legTip(c3, m3.leg);
+assert.ok(near(Math.hypot(t3.x - attachPoint(c3).x, t3.y - attachPoint(c3).y), 140), "длинная ножка достаёт дальше");
+m3.leg.length = 20;
+const t4 = legTip(c3, m3.leg);
+assert.ok(near(Math.hypot(t4.x - attachPoint(c3).x, t4.y - attachPoint(c3).y), 20), "короткая — ближе");
+
+// --- the starting program comes from the seed ---------------------------------
+const seedA = createWorld(7), seedB = createWorld(7), seedC = createWorld(8);
+assert.deepEqual(seedA.creatures[0].brain.mem, seedB.creatures[0].brain.mem, "один seed — одна программа");
+assert.notDeepEqual(seedA.creatures[0].brain.mem, seedC.creatures[0].brain.mem, "другой seed — другая программа");
+
+// --- a hand-built program: photosynthesis pays for the leg --------------------
 const w = createWorld(1);
+const mem = w.creatures[0].brain.mem;
+const program = [
+  useCell(0), useCell(0), useCell(0), useCell(0),   // four calls of photosynthesis
+  useCell(1, 2), useCell(1, 0), useCell(1, 3),      // grab, one turn, let go
+];
+mem.fill(OP_REST);
+program.forEach((v, i) => { mem[i] = v; });
+mem[MEM_CELLS - 1] = OP_JUMP;
+
 for (let i = 0; i < MEM_CELLS; i++) stepWorld(w);
 let b = w.creatures[0].brain;
 assert.equal(w.tick, MEM_CELLS, "прошёл один проход");
 assert.equal(b.pc, 0, "вернулась в первую ячейку");
 assert.equal(b.packet.energy, 0, "пакет опустошён на переходе");
-assert.ok(near(b.energy, START_ENERGY - 2), `за проход −2 энергии, а не ${b.energy}`);
+assert.ok(near(b.energy, START_ENERGY + 6 - 8), `за проход ${START_ENERGY + 6 - 8}, а не ${b.energy}`);
 
 // --- death, organic left behind, and the world stops --------------------------
 const dying = createWorld(1);
@@ -107,16 +132,11 @@ assert.equal(dying.tick, dieAt, "умерла ровно на своём тик�
 assert.equal(dying.organics.length, 1, "оставила органику");
 assert.equal(dying.organics[0].amount, ORG_BASE, "органика = ORG_BASE + оставшаяся энергия");
 
-// the default program runs out of energy on tick 600
-const natural = createWorld(1);
-for (let i = 0; i < 600; i++) stepWorld(natural);
-assert.equal(natural.creatures.length, 0, "стартовая программа выдыхается на 10-м проходе");
-assert.equal(natural.tick, 600, "именно на 600-м тике");
-
-const frozen = natural.tick;
-for (let i = 0; i < 50; i++) stepWorld(natural);
-assert.equal(natural.tick, frozen, "без живых тик стоит");
-assert.equal(natural.organics.length, 1, "органика не копится");
+// the world stops when the last creature dies, and organic does not pile up
+const frozen = dying.tick;
+for (let i = 0; i < 50; i++) stepWorld(dying);
+assert.equal(dying.tick, frozen, "без живых тик стоит");
+assert.equal(dying.organics.length, 1, "органика не копится");
 
 // --- costs: packet first, head only when it is empty --------------------------
 const poor = createWorld(1);
@@ -156,4 +176,4 @@ for (let i = 0; i < 30; i++) stepWorld(rew);
 assert.equal(keep.tick, keptTick, "снимок не изменился");
 assert.equal(keep.creatures[0].brain.energy, keptEnergy, "энергия в снимке не изменилась");
 
-console.log(`ok — фотосинтез 1.5 при 75%, ножка ${LEG_LENGTH} ед., проход −2, потолки ${HEAD_MAX}/${PACKET_MAX}, смерть на 600-м тике`);
+console.log(`ok — фотосинтез 1.5 при 75%, ножка ${LEG_LENGTH} ед., программа из сида, потолки ${HEAD_MAX}/${PACKET_MAX}, смерть и остановка мира`);

@@ -69,8 +69,9 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
 
   for (const m of c.mutations) drawMutation(ctx, m.id, cx, cy, r, tick, c.angle);
 
-  const tagBottom = nameTag(ctx, "Плюша", cx, cy + r + Math.max(6, r * 0.14), r);
-  if (selected) selectionFrame(ctx, cx, cy, r, tagBottom);
+  // The tag sits up-left of the body: below is taken by the leg, above by the sprout.
+  const tag = nameTag(ctx, "Плюша", cx - r * 1.05, cy - r * 1.5, r);
+  if (selected) selectionFrame(ctx, cx, cy, r, tag);
 }
 
 // A rigid stick from the hinge to the tip; a filled foot means it holds the ground.
@@ -103,17 +104,19 @@ function drawLeg(ctx: CanvasRenderingContext2D, c: Creature, leg: LegState, ox: 
 }
 
 // A thin frame around the whole creature — the body, the sprout and the label.
-function selectionFrame(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, bottom: number): void {
+function selectionFrame(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, tag: TagRect,
+): void {
   const pad = Math.max(4, r * 0.28);
-  const left = cx - r - pad;
-  const top = cy - r * 1.72 - pad * 0.5;    // above the sprout leaves
-  const width = (r + pad) * 2;
-  const height = bottom + pad * 0.5 - top;
+  const left = Math.min(cx - r - pad, tag.left - pad * 0.5);
+  const right = cx + r + pad;
+  const top = Math.min(cy - r * 1.72 - pad * 0.5, tag.top - pad * 0.5);
+  const bottom = cy + r + pad;
 
   ctx.strokeStyle = "rgba(255,215,110,0.55)";
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.roundRect(left, top, width, height, 8);
+  ctx.roundRect(left, top, right - left, bottom - top, 8);
   ctx.stroke();
 }
 
@@ -155,14 +158,18 @@ function leaf(ctx: CanvasRenderingContext2D, x: number, y: number, len: number, 
   ctx.restore();
 }
 
-function nameTag(ctx: CanvasRenderingContext2D, text: string, x: number, top: number, r: number): number {
+type TagRect = { left: number; top: number; right: number; bottom: number };
+
+function nameTag(ctx: CanvasRenderingContext2D, text: string, right: number, top: number, r: number): TagRect {
   const font = Math.max(10, Math.round(r * 0.6));
   ctx.font = `${font}px ui-monospace, Menlo, monospace`;
-  ctx.textAlign = "center";
+  ctx.textAlign = "right";
   const w = ctx.measureText(text).width;
+  const left = right - w - 10;
+  const box = { left, top, right: left + w + 10, bottom: top + font + 6 };
   ctx.fillStyle = "rgba(13,15,22,0.8)";
-  ctx.fillRect(x - w / 2 - 5, top, w + 10, font + 6);
+  ctx.fillRect(left, top, w + 10, font + 6);
   ctx.fillStyle = "rgba(255,215,110,0.9)";
-  ctx.fillText(text, x, top + font + 1);
-  return top + font + 6;
+  ctx.fillText(text, right - 5, top + font + 1);
+  return box;
 }

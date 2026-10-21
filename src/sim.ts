@@ -63,14 +63,20 @@ export type World = {
   organics: Organic[];
 };
 
-function createBrain(): Brain {
+// The starting program is drawn from the seed: same seed, same creature.
+function createBrain(rng: Rng): Brain {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
-  // mutation 0 = photosynthesis, mutation 1 = leg
-  for (let i = 0; i < 10; i++) mem[i] = useCell(0);      // charge up first
-  mem[10] = useCell(1, 2);                              // leg: grab the ground
-  for (let i = 11; i <= 14; i++) mem[i] = useCell(1, 0); // leg: four turns -> the body swings
-  mem[15] = useCell(1, 3);                              // leg: let go
-  mem[MEM_CELLS - 1] = OP_JUMP;                         // back to the first cell
+  let i = 0;
+
+  const photos = 5 + Math.floor(rng() * 8);                 // 5..12 turns of light
+  for (let k = 0; k < photos && i < MEM_CELLS - 3; k++) mem[i++] = useCell(0);
+
+  mem[i++] = useCell(1, 2);                                 // leg: grab the ground
+  const turns = 3 + Math.floor(rng() * 5);                  // 3..7 turns -> the body swings
+  for (let k = 0; k < turns && i < MEM_CELLS - 1; k++) mem[i++] = useCell(1, rng() < 0.25 ? 1 : 0);
+  if (i < MEM_CELLS - 1) mem[i++] = useCell(1, 3);          // leg: let go
+
+  mem[MEM_CELLS - 1] = OP_JUMP;                             // back to the first cell
   return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } };
 }
 
@@ -87,7 +93,7 @@ export function createWorld(seed = 1, count = 1): World {
       angle: 0,
       size: SIZE,
       genome: { ...BASE_GENOME },
-      brain: createBrain(),
+      brain: createBrain(rng),
       mutations: [photosynthesis(), leg()],
     });
   }

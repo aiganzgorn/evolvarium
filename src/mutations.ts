@@ -14,6 +14,7 @@ export type LegState = {
   grabbed: boolean;
   x: number;          // the ground point it holds, in world units
   y: number;
+  length: number;     // fixed at birth, part of the mutation
 };
 
 export type Mutation = {
@@ -48,7 +49,7 @@ export function leg(): Mutation {
       { action: 2, label: "схватить землю" },
       { action: 3, label: "отпустить землю" },
     ],
-    leg: { angle: 0, grabbed: false, x: 0, y: 0 },
+    leg: { angle: 0, grabbed: false, x: 0, y: 0, length: LEG_LENGTH },
     // state lives on `this`, so a copied mutation (rewind) keeps its own
     act({ self, action }) {
       const state = this.leg!;
@@ -81,7 +82,7 @@ export function legTip(c: Creature, s: LegState): { x: number; y: number } {
   if (s.grabbed) return { x: s.x, y: s.y };
   const a = attachPoint(c);
   const dir = c.angle + LEG_ATTACH + s.angle;
-  return { x: a.x + Math.cos(dir) * LEG_LENGTH, y: a.y + Math.sin(dir) * LEG_LENGTH };
+  return { x: a.x + Math.cos(dir) * s.length, y: a.y + Math.sin(dir) * s.length };
 }
 
 // The tip is nailed down, so turning the leg turns the whole body instead.
