@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Эволюляриум</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0d0f16; overflow: hidden; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; top: 12px; left: 14px;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #cdd6ff; opacity: .75; pointer-events: none; user-select: none;
+      }
+      #hud b { color: #ffd76e; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud">🐾 <b>Плюша</b> · <span id="tick">тик 0</span> · существ <span id="n">0</span> · seed <span id="seed">1</span></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
