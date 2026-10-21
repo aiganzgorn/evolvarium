@@ -11,7 +11,9 @@ export function viewTransform(vw: number, vh: number): { s: number; ox: number; 
   return { s, ox: (vw - W * s) / 2, oy: (vh - H * s) / 2 };
 }
 
-export function draw(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number): void {
+export function draw(
+  ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number, selected: number | null = null,
+): void {
   const { s, ox, oy } = viewTransform(vw, vh);
 
   ctx.fillStyle = BG;
@@ -19,7 +21,7 @@ export function draw(ctx: CanvasRenderingContext2D, world: World, vw: number, vh
   light(ctx, world.light, vw, vh);
 
   for (const o of world.organics) organic(ctx, o, ox, oy, s);
-  for (const c of world.creatures) blob(ctx, c, ox, oy, s, world.tick);
+  for (const c of world.creatures) blob(ctx, c, ox, oy, s, world.tick, c.id === selected);
 }
 
 // Global light falls from above: brighter at the top, gone at the bottom.
@@ -41,7 +43,7 @@ function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: numb
   ctx.beginPath(); ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2); ctx.fill();
 }
 
-function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number, s: number, tick: number): void {
+function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number, s: number, tick: number, selected: boolean): void {
   const cx = ox + c.x * s;
   const cy = oy + c.y * s;
   const r = (c.size * s) / 2 * 0.92;
@@ -63,7 +65,23 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
 
   for (const m of c.mutations) drawMutation(ctx, m.id, cx, cy, r, tick);
 
-  nameTag(ctx, "Плюша", cx, cy + r + Math.max(6, r * 0.14), r);
+  const tagBottom = nameTag(ctx, "Плюша", cx, cy + r + Math.max(6, r * 0.14), r);
+  if (selected) selectionFrame(ctx, cx, cy, r, tagBottom);
+}
+
+// A thin frame around the whole creature — the body, the sprout and the label.
+function selectionFrame(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, bottom: number): void {
+  const pad = Math.max(4, r * 0.28);
+  const left = cx - r - pad;
+  const top = cy - r * 1.72 - pad * 0.5;    // above the sprout leaves
+  const width = (r + pad) * 2;
+  const height = bottom + pad * 0.5 - top;
+
+  ctx.strokeStyle = "rgba(255,215,110,0.55)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(left, top, width, height, 8);
+  ctx.stroke();
 }
 
 // Every mutation must be visible. A new one gets its own case here.
@@ -100,7 +118,7 @@ function leaf(ctx: CanvasRenderingContext2D, x: number, y: number, len: number, 
   ctx.restore();
 }
 
-function nameTag(ctx: CanvasRenderingContext2D, text: string, x: number, top: number, r: number): void {
+function nameTag(ctx: CanvasRenderingContext2D, text: string, x: number, top: number, r: number): number {
   const font = Math.max(10, Math.round(r * 0.6));
   ctx.font = `${font}px ui-monospace, Menlo, monospace`;
   ctx.textAlign = "center";
@@ -109,4 +127,5 @@ function nameTag(ctx: CanvasRenderingContext2D, text: string, x: number, top: nu
   ctx.fillRect(x - w / 2 - 5, top, w + 10, font + 6);
   ctx.fillStyle = "rgba(255,215,110,0.9)";
   ctx.fillText(text, x, top + font + 1);
+  return top + font + 6;
 }

@@ -181,7 +181,7 @@ function frame(now: number): void {
   let guard = 0;                       // never freeze on a long tab switch
   while (acc >= TICK_MS && guard++ < 5) { stepForward(); acc -= TICK_MS; }
 
-  draw(ctx, world, innerWidth, innerHeight);
+  draw(ctx, world, innerWidth, innerHeight, peekOpen ? world.creatures[0]?.id ?? null : null);
   if (world.tick !== shownTick) {
     shownTick = world.tick;
     tickEl.textContent = `тик ${world.tick}`;
