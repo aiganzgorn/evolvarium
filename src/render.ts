@@ -26,32 +26,12 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
   ctx.lineWidth = Math.max(1, r * 0.04);
   ctx.stroke();
 
-  // blush
-  ctx.fillStyle = "rgba(255,120,150,0.32)";
+  // blush — the only feature she has so far, so it has to read at 40 px
+  ctx.fillStyle = "rgba(255,120,150,0.5)";
   for (const k of [-1, 1]) {
     ctx.beginPath();
-    ctx.ellipse(cx + k * r * 0.6, cy + r * 0.3, r * 0.2, r * 0.14, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + k * r * 0.58, cy + r * 0.22, r * 0.22, r * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
-  }
-
-  // the face always stays upright — a rotating face reads as a mess
-  const blink = (tick + 50) % 90 < 6;   // one blink every ~4.5 s, not at load
-  for (const k of [-1, 1]) {
-    const px = cx + k * r * 0.32, py = cy - r * 0.06;
-    if (blink) {
-      ctx.strokeStyle = "#0b0d14";
-      ctx.lineWidth = Math.max(1.5, r * 0.1);
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(px - r * 0.14, py); ctx.lineTo(px + r * 0.14, py);
-      ctx.stroke();
-      ctx.lineCap = "butt";
-    } else {
-      ctx.fillStyle = "#0b0d14";
-      ctx.beginPath(); ctx.arc(px, py, r * 0.2, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "rgba(255,255,255,0.92)";
-      ctx.beginPath(); ctx.arc(px - r * 0.07, py - r * 0.08, r * 0.07, 0, Math.PI * 2); ctx.fill();
-    }
   }
 
   nameTag(ctx, "Плюша", cx, cy + r + Math.max(6, r * 0.14), r);

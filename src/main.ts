@@ -9,6 +9,7 @@ const nEl = document.getElementById("n")!;
 const seedEl = document.getElementById("seed")!;
 const stateEl = document.getElementById("state")!;
 const hintEl = document.getElementById("hint")!;
+const energyEl = document.getElementById("energy")!;
 
 const seed = Number(new URLSearchParams(location.search).get("seed")) || 1;
 const world = createWorld(seed);
@@ -44,11 +45,14 @@ function setPaused(v: boolean): void {
 addEventListener("keydown", (e) => {
   if (e.code !== "Space") return;
   e.preventDefault();
+  if (world.creatures.length === 0) return;   // nothing left to run
   if (paused) started = true;
   setPaused(!paused);
 });
 
 setPaused(true);
+
+const tickText = () => `тик ${world.tick}`;
 
 function frame(now: number): void {
   acc = paused ? 0 : acc + (now - last);
@@ -57,7 +61,13 @@ function frame(now: number): void {
   while (acc >= TICK_MS && guard++ < 5) { stepWorld(world); acc -= TICK_MS; }
 
   draw(ctx, world, innerWidth, innerHeight);
-  if (world.tick !== shownTick) { shownTick = world.tick; tickEl.textContent = `тик ${world.tick}`; }
+  if (world.tick !== shownTick) { shownTick = world.tick; tickEl.textContent = tickText(); }
+
+  const p = world.creatures[0];
+  nEl.textContent = String(world.creatures.length);
+  energyEl.textContent = p ? String(p.brain.energy) : "—";
+  if (!p) { stateEl.textContent = "все умерли"; stateEl.style.color = "#ff8a8a"; hintEl.style.display = "none"; }
+
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
