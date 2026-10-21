@@ -26,7 +26,10 @@ export type Brain = {
   mem: number[];
   pc: number;
   energy: number;
-  packet: { energy: number };   // travels between cells, flushed into the head on wrap
+  packet: {
+    energy: number;                                    // travels between cells
+    last: { label: string; amount: number } | null;    // what was put in last, for the panel
+  };
 };
 
 export type Creature = {
@@ -60,7 +63,7 @@ function createBrain(): Brain {
   mem[2] = OP_USE;
   mem[3] = OP_USE;
   mem[MEM_CELLS - 1] = OP_JUMP;     // back to the first cell
-  return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0 } };
+  return { mem, pc: 0, energy: START_ENERGY, packet: { energy: 0, last: null } };
 }
 
 export function createWorld(seed = 1, count = 1): World {
@@ -94,6 +97,7 @@ function flush(b: Brain): void {
   const moved = Math.min(HEAD_MAX - b.energy, b.packet.energy);
   b.energy += moved;
   b.packet.energy = Math.min(PACKET_MAX, b.packet.energy - moved);
+  if (moved > 0) b.packet.last = null;
 }
 
 // Movement is off for now — the tick only drives the brain (and, in time, the body).
@@ -115,6 +119,7 @@ export function stepWorld(world: World): void {
       const m = c.mutations[arg];
       const result = m ? m.act({ self: c, world, light: world.light }) : 0;
       b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
+      b.packet.last = { label: m ? m.label : `мутации ${arg} нет`, amount: result };
     }
     b.pc = next;
     if (b.pc === 0) flush(b);

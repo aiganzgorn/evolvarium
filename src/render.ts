@@ -5,9 +5,14 @@ import { genomeColor } from "./genome.ts";
 
 const BG = "#0d0f16";
 
+// One place converts world units → pixels, so clicks and drawing always agree.
+export function viewTransform(vw: number, vh: number): { s: number; ox: number; oy: number } {
+  const s = Math.min(vw / W, vh / H);
+  return { s, ox: (vw - W * s) / 2, oy: (vh - H * s) / 2 };
+}
+
 export function draw(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: number): void {
-  const s = Math.min(vw / W, vh / H);          // world units → pixels
-  const ox = (vw - W * s) / 2, oy = (vh - H * s) / 2;
+  const { s, ox, oy } = viewTransform(vw, vh);
 
   ctx.fillStyle = BG;
   ctx.fillRect(0, 0, vw, vh);

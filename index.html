@@ -19,6 +19,50 @@
         font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #8f9ac4; pointer-events: none; user-select: none;
       }
+      #peek {
+        position: fixed; left: 14px; bottom: 12px;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #6d779e; pointer-events: none; user-select: none;
+      }
+      #panel {
+        position: fixed; right: 14px; top: 12px; width: 304px;
+        max-height: calc(100vh - 24px); overflow: auto;
+        padding: 12px 14px 14px;
+        background: rgba(13,15,22,.9); border: 1px solid rgba(140,160,220,.18);
+        border-radius: 10px; color: #cdd6ff;
+        font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        user-select: none;
+      }
+      #panel[hidden] { display: none; }
+      .phead {
+        display: flex; justify-content: space-between; align-items: baseline;
+        font-size: 14px; color: #ffd76e; margin-bottom: 6px;
+      }
+      #pclose { cursor: pointer; color: #6d779e; padding: 0 4px; }
+      #pclose:hover { color: #ffd76e; }
+      .psec {
+        margin: 12px 0 4px; color: #8f9ac4; text-transform: lowercase;
+        border-top: 1px solid rgba(140,160,220,.12); padding-top: 8px;
+      }
+      .prow { display: flex; justify-content: space-between; gap: 8px; }
+      .prow span:last-child { color: #ffd76e; }
+      .mut { margin: 2px 0; }
+      .mut .idx {
+        display: inline-block; min-width: 18px; color: #79dd8c;
+      }
+      .mut .cmd { color: #6d779e; }
+      #pmem {
+        display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px;
+        font-size: 11px;
+      }
+      .cell {
+        text-align: center; padding: 2px 0; border-radius: 3px;
+        background: rgba(140,160,220,.06); color: #59618a;
+      }
+      .cell.use { color: #79dd8c; background: rgba(121,221,140,.12); }
+      .cell.jump { color: #8fb8ff; background: rgba(143,184,255,.12); }
+      .cell.pc { outline: 1px solid #ffd76e; color: #ffd76e; background: rgba(255,215,110,.16); }
+      .note { color: #6d779e; }
     </style>
   </head>
   <body>
@@ -27,7 +71,25 @@
       <div>🐾 <b>Плюша</b> · <span id="tick">тик 0</span> · существ <span id="n">0</span> · энергия <span id="energy">0</span> · пакет <span id="packet">0</span></div>
       <div>свет <span id="light">75%</span> · органика <span id="org">0</span> · seed <span id="seed">1</span> · <span id="state">пауза</span></div>
     </div>
+    <div id="panel" hidden>
+      <div class="phead"><span>Плюша</span><span id="pclose">×</span></div>
+      <div class="prow"><span>энергия</span><span id="penergy">—</span></div>
+      <div class="prow"><span>потолок головы</span><span id="pmax">—</span></div>
+      <div class="prow"><span>указатель</span><span id="ppc">—</span></div>
+
+      <div class="psec">пакет</div>
+      <div class="prow"><span>энергия</span><span id="ppacket">—</span></div>
+      <div class="prow"><span>потолок</span><span id="ppackmax">—</span></div>
+      <div class="prow"><span>последний вклад</span><span id="plast">—</span></div>
+
+      <div class="psec">мутации</div>
+      <div id="pmut"></div>
+
+      <div class="psec">память · <span id="pmemcount">60</span> ячеек</div>
+      <div id="pmem"></div>
+    </div>
     <div id="hint">нажми пробел</div>
+    <div id="peek">клик по Плюше — заглянуть в память</div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

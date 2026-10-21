@@ -35,6 +35,7 @@ stepWorld(w);
 let b = w.creatures[0].brain;
 assert.equal(b.energy, START_ENERGY - USE_COST, "использование стоит USE_COST");
 assert.equal(b.packet.energy, 1.5, "результат лёг в пакет");
+assert.deepEqual(b.packet.last, { label: "Фотосинтез", amount: 1.5 }, "пакет помнит последний вклад");
 
 // --- second use: the packet pays for itself ------------------------------------
 stepWorld(w);
@@ -45,6 +46,7 @@ assert.equal(b.packet.energy, 2, "пакет оплатил стоимость �
 for (let i = 2; i < MEM_CELLS; i++) stepWorld(w);
 assert.equal(b.pc, 0, "вернулась в первую ячейку");
 assert.equal(b.packet.energy, 0, "пакет опустошён");
+assert.equal(b.packet.last, null, "вклад из пакета ушёл в голову");
 assert.ok(near(b.energy, START_ENERGY + 1), `за проход +1 энергии, а не ${b.energy}`);
 
 // --- caps: head cannot overflow, packet has its own ceiling --------------------
