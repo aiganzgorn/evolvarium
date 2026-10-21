@@ -1,16 +1,17 @@
 // Pure simulation core — NO DOM, NO canvas, runs headless in Node.
+// The world is plain coordinates in abstract units (one 1440×900 screen). No cells.
 import { mulberry32, type Rng } from "./rng.ts";
 import { BASE_GENOME, type Genome } from "./genome.ts";
 
-export const W = 120, H = 68;
-export const HEAD = 10;             // Плюша's head spans 10×10 cells
+export const W = 1440, H = 900;
+export const SIZE = 120;            // Плюша's diameter in world units
 export const TICK_HZ = 20;
 
 export type Creature = {
   id: number;
-  x: number;          // top-left cell of the head box
+  x: number;          // center
   y: number;
-  size: number;       // box edge in cells
+  size: number;       // diameter
   genome: Genome;
 };
 
@@ -26,9 +27,9 @@ export function createWorld(seed = 1, count = 1): World {
   for (let i = 0; i < count; i++) {
     world.creatures.push({
       id: i,
-      x: Math.round((W - HEAD) / 2),
-      y: Math.round((H - HEAD) / 2),
-      size: HEAD,
+      x: W / 2,
+      y: H / 2,
+      size: SIZE,
       genome: { ...BASE_GENOME },
     });
   }
