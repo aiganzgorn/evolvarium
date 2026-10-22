@@ -8,7 +8,7 @@ import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, ORG_BASE, BASE_GENOME,
   LIGHT_MIN, LIGHT_MAX, LIGHT_PERIOD, LIGHT_BAND, LEG_MIN, LEG_MAX,
-  BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, ORGANIC_GROW, ORGANIC_MAX,
+  BUSHES, START_CREATURES, RESPAWN, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, ORGANIC_GROW, ORGANIC_MAX,
   ORGANIC_SEED_MIN, ORGANIC_SEED_GROWN, MAX_ORGANICS, ORGANIC_SEED_SHARE, SEED_ENERGY, SEED_DIST, SEED_CROWD, SEED_NEIGHBOURS, SEED_NEIGHBOURS_R, PUSH_DIST,
 } from "./config.ts";
 
@@ -163,7 +163,7 @@ function bornLegs(rng: Rng): Mutation[] {
   return legs;
 }
 
-export function createWorld(seed = 1, count = 1): World {
+export function createWorld(seed = 1, count = START_CREATURES, bushes = BUSHES): World {
   const rng = mulberry32(seed);
   const world: World = {
     rng, tick: 0, creatures: [], organics: [], nextOrganicId: 0, nextCreatureId: 0,
@@ -181,7 +181,7 @@ export function createWorld(seed = 1, count = 1): World {
     });
   }
   // A couple of bushes to start with, scattered by the seed.
-  for (let i = 0; i < BUSHES; i++) {
+  for (let i = 0; i < bushes; i++) {
     const x = ORGANIC_SIZE + rng() * (W - ORGANIC_SIZE * 2);
     const y = ORGANIC_SIZE + rng() * (H - ORGANIC_SIZE * 2);
     world.organics.push({
@@ -281,7 +281,6 @@ function copyCreature(c: Creature): Creature {
 
 // The tick drives the brains of creatures and the tiny brains of plants.
 export function stepWorld(world: World): void {
-  if (world.creatures.length === 0 && world.organics.length === 0) return;   // nothing alive
   world.tick++;
 
   for (const c of world.creatures) {
@@ -316,7 +315,7 @@ export function stepWorld(world: World): void {
   }
   world.creatures = world.creatures.filter(c => c.brain.energy > 0);
 
-  if (world.creatures.length === 0) respawn(world);      // the last one dies — a new one arrives
+  if (RESPAWN && world.creatures.length === 0) respawn(world);   // the last one dies — a new one arrives
 }
 
 // A fresh Плюша, hatched from a hash of the tick: no shared rng, so rewind stays exact.

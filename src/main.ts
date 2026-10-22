@@ -7,7 +7,7 @@ import {
 import { mulberry32 } from "./rng.ts";
 import { draw, viewTransform, type Selection } from "./render.ts";
 import {
-  TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W,
+  TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W, RESPAWN,
   ORGANIC_MAX, ORGANIC_SIZE, ORGANIC_SEED_MIN, ORGANIC_SEED_SHARE, SEED_ENERGY,
   SEED_NEIGHBOURS, SEED_NEIGHBOURS_R,
 } from "./config.ts";
@@ -285,7 +285,6 @@ let started = false;
 const history: Snapshot[] = [];
 
 function stepForward(): void {
-  if (world.creatures.length === 0 && world.organics.length === 0) return;   // nothing alive
   history.push(snapshot(world));
   if (history.length > HISTORY_TICKS) history.shift();
   stepWorld(world);
@@ -307,7 +306,7 @@ function setPaused(v: boolean): void {
 addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
-    if (world.creatures.length === 0 && world.organics.length === 0) return;   // nothing left to run
+    if (!RESPAWN && world.creatures.length === 0 && world.organics.length === 0) return;   // nothing left to run
     if (paused) started = true;
     setPaused(!paused);
     return;
@@ -343,18 +342,14 @@ function frame(now: number): void {
   }
 
   const p = world.creatures[0];
+  $("who").textContent = p ? "Плюша" : "мир";
+  $("peek").hidden = !p;
   nEl.textContent = String(world.creatures.length);
   orgEl.textContent = String(world.organics.length);
   energyEl.textContent = p ? fmt(p.brain.energy) : "—";
   packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
   histEl.textContent = String(history.length);
   lightEl.textContent = `${Math.round(lightAt(world, p ? p.x : W / 2) * 100)}%`;
-  if (!p) {
-    stateEl.textContent = world.organics.length ? "плюш нет" : "пусто";
-    stateEl.style.color = world.organics.length ? "#79dd8c" : "#ff8a8a";
-    hintEl.style.display = "none";
-  }
-
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);

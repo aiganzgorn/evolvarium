@@ -35,8 +35,13 @@ export const LEG_STEP = (LEG_STEP_DEG * Math.PI) / 180;
 export const LEG_ATTACH = (LEG_ATTACH_DEG * Math.PI) / 180;
 export const LEG_SPREAD = (LEG_SPREAD_DEG * Math.PI) / 180;
 
+// life at the start: 0 creatures and 0 bushes means an empty world.
+// Put 1 / 2 / true back to bring life in.
+export const START_CREATURES = 0;      // how many Плюши are born at the start
+export const RESPAWN = false;          // a new Плюша after the last one dies
+
 // organic (plants that grow, photosynthesise and scatter seeds)
-export const BUSHES = 2;               // bushes placed at the start
+export const BUSHES = 0;               // bushes placed at the start
 export const ORGANIC_CELLS = 8;        // tiny brain: 6 photosynthesis, 1 seed, 1 jump
 export const ORGANIC_SIZE = 26;        // full radius in world units
 export const SEED_SIZE = 6;            // a seed starts this small
