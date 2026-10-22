@@ -12,6 +12,7 @@ import {
   PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_GROW_COST,
   PLANT_SPROUT_AGE, PLANT_MATURE_AGE, PLANT_OLD_AGE, PLANT_MAX_AGE, PLANT_AGE_MUT,
   PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
+  PLANT_CROWD, PLANT_DEATH_SEED,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
@@ -383,7 +384,37 @@ function addPlant(
 // same interpreter as Плюша, and only a mature plant may drop a seed.
 function stepPlants(world: World): void {
   for (const p of [...world.plants]) runPlantCell(world, p);   // the new seeds wait for the next tick
+
+  const dead = world.plants.filter(p => p.brain.energy <= 0 || p.age >= p.maxAge);
   world.plants = world.plants.filter(p => p.brain.energy > 0 && p.age < p.maxAge);
+  for (const d of dead) leaveSeed(world, d);                   // the spot is free again by now
+}
+
+// A dead plant leaves one last seed on its own spot, with a share of what it still
+// had. A starved plant has nothing to leave.
+function leaveSeed(world: World, d: Plant): void {
+  if (d.brain.energy <= 0) return;
+  if (world.plants.length >= PLANT_MAX) return;
+  const spot = freeSpot(world, d.x, d.y, hashAngle(d.id, world.tick));
+  if (!spot) return;
+
+  addPlant(world, spot.x, spot.y, 0, mutateMaxAge(d.maxAge, d.id, world.tick),
+    d.brain.energy * PLANT_DEATH_SEED, mutateMemory(d.brain.mem, d.id, world.tick));
+}
+
+// A seed needs an empty place: nothing within PLANT_CROWD. It tries the spot it was
+// aimed at first, then eight directions around it.
+function freeSpot(world: World, x: number, y: number, a: number): { x: number; y: number } | null {
+  for (let k = 0; k < 9; k++) {
+    const angle = k === 0 ? a : a + (k * Math.PI) / 4;
+    const d = k === 0 ? SEED_DIST : SEED_DIST;
+    const sx = x + Math.cos(angle) * d;
+    const sy = y + Math.sin(angle) * d;
+    if (sx < PLANT_SIZE || sx > W - PLANT_SIZE || sy < PLANT_SIZE || sy > H - PLANT_SIZE) continue;
+    if (world.plants.some(p => Math.hypot(p.x - sx, p.y - sy) < PLANT_CROWD)) continue;
+    return { x: sx, y: sy };
+  }
+  return null;
 }
 
 // shortcut: the plant interpreter repeats the creature one instead of sharing it.
@@ -418,15 +449,15 @@ function trySeed(world: World, p: Plant): void {
   if (p.brain.energy < PLANT_SEED_MIN) return;
   if (world.plants.length >= PLANT_MAX) return;
 
+  const a = hashAngle(p.id, world.tick);
+  const spot = freeSpot(world, p.x, p.y, a);
+  if (!spot) return;                                   // every place around is taken
+
   const taken = p.brain.energy * PLANT_SEED_SHARE;
   p.brain.energy -= taken;
 
-  const a = hashAngle(p.id, world.tick);
   addPlant(
-    world,
-    p.x + Math.cos(a) * SEED_DIST,
-    p.y + Math.sin(a) * SEED_DIST,
-    0,
+    world, spot.x, spot.y, 0,
     mutateMaxAge(p.maxAge, p.id, world.tick),
     taken * SEED_ENERGY,
     mutateMemory(p.brain.mem, p.id, world.tick),

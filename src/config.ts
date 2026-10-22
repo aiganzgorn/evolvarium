@@ -56,6 +56,8 @@ export const PLANT_SEED_MIN = 24;      // no seed below this energy
 export const PLANT_SEED_SHARE = 0.5;   // part of the parent's energy that goes to the seed
 export const SEED_ENERGY = 0.9;        // the child gets this share of what was taken
 export const SEED_DIST = 14;           // how far the seed lands from the parent
+export const PLANT_CROWD = 4;          // a seed cannot land closer than this to another plant
+export const PLANT_DEATH_SEED = 0.4;   // share of a dying plant's energy that goes into its last seed
 export const PLANT_MUTATE_CELLS = 4;   // how many cells of the child's memory differ
 
 // photosynthesis and the rest of the mutation economy

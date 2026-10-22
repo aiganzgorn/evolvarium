@@ -13,6 +13,7 @@ import {
   LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
   PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_GROW_COST,
   PLANT_SPROUT_AGE, PLANT_MATURE_AGE, PLANT_OLD_AGE, PLANT_MAX_AGE, PLANT_AGE_MUT,
+  PLANT_CROWD, PLANT_DEATH_SEED,
   PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
 } from "../src/config.ts";
 
@@ -258,6 +259,11 @@ for (let i = 0; i < 40; i++) eDo([2, 40]);               // and try to drag the 
 assert.ok(ec.x <= W - ec.size / 2 + 1e-9, `тело не вышло за правый край (${ec.x.toFixed(1)})`);
 assert.ok(ec.x >= ec.size / 2 - 1e-9 && ec.y >= ec.size / 2 - 1e-9 && ec.y <= H - ec.size / 2 + 1e-9, "и не вышло за остальные");
 
+const hashAngleTest = (id, tick) => {
+  const v = Math.sin(id * 127.1 + tick * 311.7) * 43758.5453;
+  return (v - Math.floor(v)) * Math.PI * 2;
+};
+
 // --- plants: growth is a mutation the program calls -------------------------
 const growMem = () => {
   const mem = new Array(PLANT_CELLS).fill(OP_REST);
@@ -355,6 +361,46 @@ const life = (age, energy, mem = growMem()) => {
   const young = life(PLANT_SPROUT_AGE, PLANT_SEED_MIN + 10, harvestMem());
   stepWorld(young.w);
   assert.equal(young.w.plants.length, 1, "росток не даёт семени");
+}
+
+// --- a dead plant leaves a last seed; a seed needs an empty spot ------------
+{
+  const { w, pl } = life(PLANT_MAX_AGE, 20, new Array(PLANT_CELLS).fill(OP_REST));
+  const before = w.plants.length;
+  stepWorld(w);
+  assert.ok(!w.plants.includes(pl), "растение умерло по возрасту");
+  assert.equal(w.plants.length, before, "но на его месте осталось семя");
+  const seed = w.plants[0];
+  assert.equal(stageOf(seed), "seed", "именно семя");
+  assert.ok(near(seed.brain.energy, 20 * PLANT_DEATH_SEED), "с долей его энергии");
+  assert.ok(Math.hypot(seed.x - pl.x, seed.y - pl.y) <= SEED_DIST + 1e-9, "рядом с местом смерти");
+}
+{
+  const { w, pl } = life(10, 0);                          // starved: nothing to leave
+  stepWorld(w);
+  assert.ok(!w.plants.includes(pl), "голодное растение ушло");
+  assert.equal(w.plants.length, 0, "и ничего не оставило");
+}
+
+// seeds do not land on top of another plant
+{
+  const { w, pl } = life(PLANT_MATURE_AGE, PLANT_SEED_MIN + 10, harvestMem());
+  pl.x = W / 2; pl.y = H / 2;
+  // fill every candidate spot around it
+  for (let k = 0; k < 8; k++) {
+    const a = hashAngleTest(pl.id, 1) + (k * Math.PI) / 4;
+    w.plants.push({
+      id: w.nextPlantId++, x: pl.x + Math.cos(a) * SEED_DIST, y: pl.y + Math.sin(a) * SEED_DIST,
+      age: 11, maxAge: PLANT_MAX_AGE,
+      brain: { mem: [], pc: 0, energy: 20, packet: { energy: 0, last: null } },
+      mutations: [],
+    });
+  }
+  const before = w.plants.length;
+  const energy = pl.brain.energy;
+  stepWorld(w);
+  assert.equal(w.plants.length, before, "все места заняты — семени нет");
+  assert.equal(pl.brain.energy, energy, "и энергия не потрачена");
 }
 
 // a plant stores no more than its ceiling
