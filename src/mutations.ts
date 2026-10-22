@@ -1,15 +1,16 @@
 // Mutations: traits the brain can call. Pure logic only — visuals live in render.ts.
-import type { Creature, World } from "./sim.ts";
+import type { Creature, Plant, World } from "./sim.ts";
 import {
   W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD,
   EAT_RANGE, EAT_RATE, EAT_COST, PUSH_DIST, PUSH_COST, PHOTO_GAIN, PHOTO_COST,
-  LEG_TURN_COST, LEG_HOLD_COST, PLANT_SIZE,
+  LEG_TURN_COST, LEG_HOLD_COST, PLANT_SIZE, PLANT_GROW_COST, PLANT_SPROUT_AGE,
 } from "./config.ts";
 
 export type Packet = { energy: number; last: { label: string; amount: number } | null };
 
 export type MutationContext = {
   self: Creature;
+  plant?: Plant;      // set when a plant's memory runs — its mutation list is its own
   world: World;
   light: number;      // 0..1
   params: number[];   // four numbers 00..99 taken from the cell
@@ -60,9 +61,28 @@ export function plantLight(): Mutation {
   return {
     id: "photosynthesis",
     label: "Свет",
-    hint: "берёт 2 × свет, бесплатно",
+    hint: "берёт 2 × свет, бесплатно; семя света не видит",
     cost: 0,
-    act: ({ light }) => 2 * light,
+    act: ({ light, plant }) => (plant && plant.age < PLANT_SPROUT_AGE ? 0 : 2 * light),
+  };
+}
+
+// --- growth ------------------------------------------------------------------
+// Growing costs energy and adds one to age. Age is the whole life of a plant:
+// 0-3 seed, 4-10 sprout, 11-40 mature, 41-maxAge old, maxAge dead.
+export function plantGrow(): Mutation {
+  return {
+    id: "grow",
+    label: "Рост",
+    hint: `+1 к возрасту за ${PLANT_GROW_COST} энергии (семя 0-3, росток 4-10, зрелое 11-40, старое 41+)`,
+    cost: 0,
+    act({ plant }) {
+      if (!plant) return 0;
+      if (plant.brain.energy < PLANT_GROW_COST) return 0;
+      plant.brain.energy -= PLANT_GROW_COST;
+      plant.age += 1;
+      return 0;
+    },
   };
 }
 

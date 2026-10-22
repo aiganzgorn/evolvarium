@@ -1,7 +1,7 @@
 // Browser entry point: canvas, resize, fixed-rate loop, the click-to-peek panel.
 import {
   createWorld, stepWorld, snapshot, restore, opOf, mutationOf, paramsOf, jumpTarget,
-  jumpCell, useCell, demoMemory, randomMemory, lightAt, OP_REST,
+  jumpCell, useCell, demoMemory, randomMemory, lightAt, stageOf, OP_REST,
   type Creature, type Snapshot,
 } from "./sim.ts";
 import { mulberry32 } from "./rng.ts";
@@ -145,9 +145,9 @@ function paintPanel(): void {
   for (const id of rows) $(id).hidden = !plant;
   $("legend").textContent = creature
     ? "2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка"
-    : "2·00 — свет · семя — посадить семечко · 1→NN — прыжок · только просмотр";
+    : "2·00 — свет · 2·01 — рост (+1 возраст) · семя — посадить · 1→NN — прыжок";
   if (plant) {
-    $("psize").textContent = `${PLANT_STAGE[plant.stage]} · ${plant.age} тик.`;
+    $("psize").textContent = `${PLANT_STAGE[stageOf(plant)]} · возраст ${plant.age} из ${plant.maxAge}`;
     $("pseedminv").textContent = `${PLANT_SEED_MIN} · сейчас ${fmt(plant.brain.energy)}`;
     $("pseedsharev").textContent = `${Math.round(PLANT_SEED_SHARE * 100)}% энергии`;
     $("pseedchildv").textContent = `${Math.round(SEED_ENERGY * 100)}% от забранного`;

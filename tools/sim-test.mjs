@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import {
   createWorld, stepWorld, snapshot, restore, demoMemory, randomMemory, lightAt, lightCenter, plantMemory,
-  opOf, mutationOf, paramsOf, jumpTarget, jumpCell, useCell,
+  opOf, mutationOf, paramsOf, jumpTarget, jumpCell, useCell, stageOf,
   OP_REST, OP_JUMP, OP_USE, OP_SEED,
 } from "../src/sim.ts";
 import { mulberry32 } from "../src/rng.ts";
@@ -11,8 +11,8 @@ import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT_MIN, LIGHT_MAX, ORG_BASE,
   EAT_RATE, EAT_RANGE, PUSH_DIST, PHOTO_GAIN, PHOTO_COST, EAT_COST, PUSH_COST, LEG_TURN_COST, LEG_HOLD_COST,
   LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
-  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_SPROUT_COST,
-  PLANT_SPROUT_TICKS, PLANT_GROW_TICKS, PLANT_MATURE_TICKS, PLANT_OLD_TICKS,
+  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_GROW_COST,
+  PLANT_SPROUT_AGE, PLANT_MATURE_AGE, PLANT_OLD_AGE, PLANT_MAX_AGE, PLANT_AGE_MUT,
   PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
 } from "../src/config.ts";
 
@@ -71,12 +71,14 @@ assert.equal(shipped.plants.length, PLANTS, "но поле растений ес
 // --- plants: sixteen cells, four stages, same language -----------------------
 for (const pl of a.plants) {
   assert.equal(pl.brain.mem.length, PLANT_CELLS, "у растения шестнадцать ячеек");
-  assert.equal(pl.brain.mem[PLANT_CELLS - 2], OP_SEED, "одна ячейка — семя");
+  assert.ok(pl.brain.mem.includes(OP_SEED), "одна ячейка — семя");
   assert.equal(pl.brain.mem[PLANT_CELLS - 1], jumpCell(0), "последняя — возврат в начало");
-  assert.ok(["seed", "sprout", "mature", "old"].includes(pl.stage), "стадия из четырёх");
+  assert.deepEqual(pl.mutations.map(m => m.id), ["photosynthesis", "grow"], "свет и рост, индексы 00 и 01");
+  assert.ok(["seed", "sprout", "mature", "old"].includes(stageOf(pl)), "стадия из четырёх");
+  assert.ok(pl.maxAge >= PLANT_OLD_AGE + 1, "у каждого свой максимальный возраст");
 }
 const seedField = createWorld(4, 0, 40);
-const stages = new Set(seedField.plants.map(pl => pl.stage));
+const stages = new Set(seedField.plants.map(stageOf));
 assert.ok(stages.size >= 3, "на старте поле в разных стадиях");
 assert.deepEqual(createWorld(4, 0, 20).plants.map(pl => [Math.round(pl.x), Math.round(pl.y)]),
   createWorld(4, 0, 20).plants.map(pl => [Math.round(pl.x), Math.round(pl.y)]), "растения расставлены от сида");
@@ -207,7 +209,7 @@ assert.equal(dying.creatures.length, 1, "ещё жива перед послед
 stepWorld(dying);
 assert.equal(dying.tick, dieAt, "умерла ровно на своём тике");
 assert.equal(dying.plants.length, 1, "на её месте осталось семя");
-assert.equal(dying.plants[0].stage, "seed", "именно семя");
+assert.equal(stageOf(dying.plants[0]), "seed", "именно семя");
 assert.equal(dying.plants[0].brain.energy, ORG_BASE, "с энергией ORG_BASE");
 
 // RESPAWN is off in the shipped world: the dead one simply stays dead
@@ -256,53 +258,87 @@ for (let i = 0; i < 40; i++) eDo([2, 40]);               // and try to drag the 
 assert.ok(ec.x <= W - ec.size / 2 + 1e-9, `тело не вышло за правый край (${ec.x.toFixed(1)})`);
 assert.ok(ec.x >= ec.size / 2 - 1e-9 && ec.y >= ec.size / 2 - 1e-9 && ec.y <= H - ec.size / 2 + 1e-9, "и не вышло за остальные");
 
-// --- plants: the four stages ------------------------------------------------
-const life = (stage, energy, mem) => {
+// --- plants: growth is a mutation the program calls -------------------------
+const growMem = () => {
+  const mem = new Array(PLANT_CELLS).fill(OP_REST);
+  mem[0] = useCell(1);                     // рост
+  mem[1] = jumpCell(0);                    // и по кругу
+  return mem;
+};
+const harvestMem = () => new Array(PLANT_CELLS).fill(OP_SEED);
+
+const life = (age, energy, mem = growMem()) => {
   const w = createWorld(1, 0, 1);
   const pl = w.plants[0];
-  pl.stage = stage; pl.age = 0; pl.brain.energy = energy;
-  if (mem) pl.brain.mem = mem;
+  pl.age = age; pl.maxAge = PLANT_MAX_AGE; pl.brain.energy = energy; pl.brain.mem = mem; pl.brain.pc = 0;
   return { w, pl };
 };
 
-// a seed lives off its reserves and becomes a sprout
+// growth: one call, one point of age, and it is paid for
 {
-  const { w, pl } = life("seed", PLANT_SPROUT_COST + 2, new Array(PLANT_CELLS).fill(OP_REST));
-  for (let i = 0; i < PLANT_SPROUT_TICKS; i++) stepWorld(w);
-  assert.equal(pl.stage, "sprout", "семя проросло ростком");
-  assert.ok(pl.brain.energy < PLANT_SPROUT_COST + 2, "и потратило энергию на рост");
-  assert.equal(pl.age, 0, "возраст считается заново");
+  const { w, pl } = life(0, 10);
+  stepWorld(w);
+  assert.equal(pl.age, 1, "рост добавил год");
+  assert.equal(pl.brain.energy, 10 - PLANT_GROW_COST, "и заплатил за него");
+  assert.equal(stageOf(pl), "seed", "до 4 лет это семя");
 }
 
-// a seed without reserves dies
+// the bands: 0-3 seed, 4-10 sprout, 11-40 mature, 41+ old
 {
-  const { w } = life("seed", PLANT_SPROUT_COST / 4, new Array(PLANT_CELLS).fill(OP_REST));
-  for (let i = 0; i < PLANT_SPROUT_TICKS; i++) stepWorld(w);
-  assert.equal(w.plants.length, 0, "семя без энергии погибает");
+  for (const [age, stage] of [[0, "seed"], [3, "seed"], [4, "sprout"], [10, "sprout"],
+                              [11, "mature"], [40, "mature"], [41, "old"], [59, "old"]]) {
+    assert.equal(stageOf({ age }), stage, `возраст ${age} — ${stage}`);
+  }
 }
 
-// growth, ageing and death run on time
+// a poor plant does not grow and does not pay
 {
-  const { w, pl } = life("sprout", 20);
-  for (let i = 0; i < PLANT_GROW_TICKS; i++) stepWorld(w);
-  assert.equal(pl.stage, "mature", "росток стал зрелым");
-  for (let i = 0; i < PLANT_MATURE_TICKS; i++) stepWorld(w);
-  assert.equal(pl.stage, "old", "зрелое стало старым");
-  pl.brain.energy = 20;
-  for (let i = 0; i < PLANT_OLD_TICKS; i++) stepWorld(w);
-  assert.ok(!w.plants.includes(pl), "старое растение уходит");
+  const { w, pl } = life(0, PLANT_GROW_COST - 1);
+  stepWorld(w);
+  assert.equal(pl.age, 0, "без энергии не растёт");
+  assert.equal(pl.brain.energy, PLANT_GROW_COST - 1, "и ничего не тратит");
+}
+
+// a seed sees no light; a sprout does
+{
+  const lightMem = new Array(PLANT_CELLS).fill(useCell(0));
+  const seed = life(0, 10, lightMem);
+  for (let i = 0; i < PLANT_CELLS; i++) stepWorld(seed.w);
+  assert.equal(seed.pl.brain.energy, 10, "семя света не получает");
+
+  const sprout = life(PLANT_SPROUT_AGE, 10, lightMem);
+  for (let i = 0; i < PLANT_CELLS; i++) stepWorld(sprout.w);
+  assert.ok(sprout.pl.brain.energy > 10, "росток свет берёт");
+}
+
+// a plant dies at its own max age, which a seed mutates
+{
+  const { w, pl } = life(PLANT_MAX_AGE - 1, 20);
+  assert.ok(w.plants.includes(pl), "перед смертью ещё есть");
+  stepWorld(w);
+  stepWorld(w);
+  assert.ok(!w.plants.includes(pl), "на maxAge растение уходит");
+
+  const ages = new Set();
+  const parent = life(PLANT_MATURE_AGE, PLANT_SEED_MIN + 10, harvestMem());
+  for (let i = 0; i < 50; i++) {
+    parent.pl.brain.energy = PLANT_SEED_MIN + 10;         // keep it fed
+    stepWorld(parent.w);
+    for (const kid of parent.w.plants.slice(1)) ages.add(kid.maxAge);
+  }
+  assert.ok(ages.size > 1, "максимальный возраст у детей разный");
+  for (const a of ages) assert.ok(a >= PLANT_OLD_AGE + 1, `maxAge ${a} не короче старости`);
 }
 
 // only a mature plant seeds, and only with enough energy
 {
-  const seedMem = new Array(PLANT_CELLS).fill(OP_SEED);
-  const rich = life("mature", PLANT_SEED_MIN + 10, seedMem);
+  const rich = life(PLANT_MATURE_AGE, PLANT_SEED_MIN + 10, harvestMem());
   const plantsBefore = rich.w.plants.length;
   stepWorld(rich.w);
   assert.equal(rich.w.plants.length, plantsBefore + 1, "зрелое растение даёт семя");
 
   const child = rich.w.plants[1];
-  assert.equal(child.stage, "seed", "ребёнок — семя");
+  assert.equal(child.age, 0, "ребёнок — семя");
   assert.equal(child.brain.mem.length, PLANT_CELLS, "у него шестнадцать ячеек");
   assert.ok(near(child.brain.energy, (PLANT_SEED_MIN + 10) * PLANT_SEED_SHARE * SEED_ENERGY),
     "ребёнок получил свою долю");
@@ -310,22 +346,21 @@ const life = (stage, energy, mem) => {
     "родитель отдал половину");
   assert.ok(Math.hypot(child.x - rich.pl.x, child.y - rich.pl.y) <= SEED_DIST + 1e-9, "семя рядом");
   assert.notDeepEqual(child.brain.mem, rich.pl.brain.mem, "часть ячеек памяти изменена");
-  assert.equal(child.brain.mem.filter(c => c !== rich.pl.brain.mem[child.brain.mem.indexOf(c)]).length,
-    PLANT_MUTATE_CELLS, "изменились ровно PLANT_MUTATE_CELLS ячеек");
+  assert.deepEqual(child.mutations.map(m => m.id), ["photosynthesis", "grow"], "и мутации на месте");
 
-  const poor = life("mature", PLANT_SEED_MIN - 1, seedMem);
+  const poor = life(PLANT_MATURE_AGE, PLANT_SEED_MIN - 1, harvestMem());
   stepWorld(poor.w);
   assert.equal(poor.w.plants.length, 1, "без энергии семени нет");
 
-  const young = life("sprout", PLANT_SEED_MIN + 10, seedMem);
+  const young = life(PLANT_SPROUT_AGE, PLANT_SEED_MIN + 10, harvestMem());
   stepWorld(young.w);
   assert.equal(young.w.plants.length, 1, "росток не даёт семени");
 }
 
 // a plant stores no more than its ceiling
 {
-  const { w, pl } = life("mature", PLANT_ENERGY_MAX - 1);
-  for (let i = 0; i < 40; i++) stepWorld(w);
+  const { w, pl } = life(11, PLANT_ENERGY_MAX - 1);
+  for (let i = 0; i < 200; i++) stepWorld(w);
   assert.ok(pl.brain.energy <= PLANT_ENERGY_MAX, "потолок растения держит");
 }
 

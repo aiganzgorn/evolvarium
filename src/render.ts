@@ -1,6 +1,7 @@
 // Rendering only — reads the world, never mutates it.
 import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD, EAT_RANGE, PLANT_SIZE } from "./config.ts";
 import type { Creature, Plant, World } from "./sim.ts";
+import { stageOf } from "./sim.ts";
 import { lightCenter } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
 import { attachPoint, legTip, type LegState } from "./mutations.ts";
@@ -54,7 +55,7 @@ function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: numb
 }
 
 // A plant is a single dot: exactly 2×2 world units, coloured by its stage.
-const PLANT_COLOR: Record<Plant["stage"], string> = {
+const PLANT_COLOR: Record<"seed" | "sprout" | "mature" | "old", string> = {
   seed: "#4f6b56",      // dull, waiting
   sprout: "#8ee39c",    // young and bright
   mature: "#c6f56e",    // full of energy
@@ -67,7 +68,7 @@ function plant(
   // never smaller than 2 real pixels, or the field turns into dust on small windows
   const size = Math.max(2, PLANT_SIZE * s);
   const cx = ox + p.x * s, cy = oy + p.y * s;
-  ctx.fillStyle = PLANT_COLOR[p.stage];
+  ctx.fillStyle = PLANT_COLOR[stageOf(p)];
   ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
 
   if (selected) {

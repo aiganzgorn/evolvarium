@@ -3,14 +3,14 @@
 import { mulberry32, type Rng } from "./rng.ts";
 import type { Genome } from "./genome.ts";
 import type { Mutation } from "./mutations.ts";
-import { photosynthesis, mouth, push, leg, mutationCost } from "./mutations.ts";
+import { photosynthesis, plantLight, plantGrow, mouth, push, leg, mutationCost } from "./mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, ORG_BASE, BASE_GENOME,
   LIGHT_MIN, LIGHT_MAX, LIGHT_PERIOD, LIGHT_BAND, LEG_MIN, LEG_MAX,
   START_CREATURES, RESPAWN, PUSH_DIST,
-  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_SPROUT_COST,
-  PLANT_SPROUT_TICKS, PLANT_GROW_TICKS, PLANT_MATURE_TICKS, PLANT_OLD_TICKS,
+  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_GROW_COST,
+  PLANT_SPROUT_AGE, PLANT_MATURE_AGE, PLANT_OLD_AGE, PLANT_MAX_AGE, PLANT_AGE_MUT,
   PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
 } from "./config.ts";
 
@@ -84,10 +84,19 @@ export type Plant = {
   id: number;
   x: number;
   y: number;
-  stage: PlantStage;
-  age: number;        // ticks spent in the current stage
+  age: number;        // growth progress: the growth mutation adds one, the stage follows
+  maxAge: number;     // inherited and mutable; at this age the plant dies
   brain: Brain;
+  mutations: Mutation[];   // [00 свет, 01 рост]
 };
+
+// The stage is read off the age, never stored: 0-3 seed, 4-10 sprout, 11-40 mature, 41+ old.
+export function stageOf(p: Plant): PlantStage {
+  if (p.age < PLANT_SPROUT_AGE) return "seed";
+  if (p.age < PLANT_MATURE_AGE) return "sprout";
+  if (p.age < PLANT_OLD_AGE) return "mature";
+  return "old";
+}
 
 export type World = {
   rng: Rng;
@@ -98,13 +107,23 @@ export type World = {
   nextCreatureId: number;
 };
 
-// A plant's brain: twelve turns of light, one seed, and back to the start.
+// A plant's brain: grow, breathe light, drop a seed, grow again, back to the start.
+// One program fits every stage — a seed grows on its reserves, a mature plant
+// simply ignores the growth calls (they cost nothing there).
 export function plantMemory(): number[] {
   const mem = new Array<number>(PLANT_CELLS).fill(OP_REST);
-  for (let i = 0; i < PLANT_CELLS - 4; i++) mem[i] = useCell(0);     // photosynthesis
-  mem[PLANT_CELLS - 2] = OP_SEED;                                    // 3 — plant a seed
-  mem[PLANT_CELLS - 1] = jumpCell(0);
+  mem[0] = useCell(1);                                               // рост: семя → росток
+  for (let i = 1; i <= 11; i++) mem[i] = useCell(0);                 // свет
+  mem[12] = OP_SEED;                                                 // 3 — семя
+  mem[13] = useCell(1);                                              // рост: росток → зрелое
+  mem[14] = useCell(0);                                              // свет
+  mem[15] = jumpCell(0);
   return mem;
+}
+
+// A plant's organs, addressed by the same two-digit index as Плюша's.
+export function plantMutations(): Mutation[] {
+  return [plantLight(), plantGrow()];
 }
 
 // A hand-written two-legged walker: fuel, then a full step on each leg.
@@ -189,19 +208,19 @@ export function createWorld(seed = 1, count = START_CREATURES, plants = PLANTS):
   for (let i = 0; i < plants; i++) {
     const x = PLANT_SIZE + rng() * (W - PLANT_SIZE * 2);
     const y = PLANT_SIZE + rng() * (H - PLANT_SIZE * 2);
-    const t = rng();
-    const stage: PlantStage = t < 0.3 ? "seed" : t < 0.55 ? "sprout" : t < 0.85 ? "mature" : "old";
+    // every stage at the start, so the field reads at once
     world.plants.push({
       id: world.nextPlantId++,
       x, y,
-      stage,
-      age: Math.floor(rng() * 100),
+      age: Math.floor(rng() * PLANT_MAX_AGE * 0.95),
+      maxAge: PLANT_MAX_AGE,
       brain: {
         mem: plantMemory(),
         pc: Math.floor(rng() * PLANT_CELLS),
         energy: PLANT_ENERGY_MAX * (0.25 + rng() * 0.7),
         packet: { energy: 0, last: null },
       },
+      mutations: plantMutations(),
     });
   }
   return world;
@@ -215,8 +234,8 @@ function pay(b: Brain, cost: number): void {
 }
 
 // Wrap to the first cell: what the packet carries goes back into the head, up to HEAD_MAX.
-function flush(b: Brain): void {
-  const moved = Math.min(HEAD_MAX - b.energy, b.packet.energy);
+function flush(b: Brain, max = HEAD_MAX): void {
+  const moved = Math.min(max - b.energy, b.packet.energy);
   b.energy += moved;
   b.packet.energy = Math.min(PACKET_MAX, b.packet.energy - moved);
   if (moved > 0) b.packet.last = null;
@@ -321,7 +340,7 @@ export function stepWorld(world: World): void {
   stepPlants(world);                                     // plants grow and seed first
   for (const c of world.creatures) {                     // then the fallen leave a seed
     if (c.brain.energy > 0) continue;
-    addPlant(world, c.x, c.y, "seed", ORG_BASE + Math.max(0, c.brain.energy), plantMemory());
+    addPlant(world, c.x, c.y, 0, PLANT_MAX_AGE, ORG_BASE + Math.max(0, c.brain.energy), plantMemory());
   }
   world.creatures = world.creatures.filter(c => c.brain.energy > 0);
 
@@ -344,14 +363,17 @@ function respawn(world: World): void {
   });
 }
 
-function addPlant(world: World, x: number, y: number, stage: PlantStage, energy: number, mem: number[]): Plant {
+function addPlant(
+  world: World, x: number, y: number, age: number, maxAge: number, energy: number, mem: number[],
+): Plant {
   const p: Plant = {
     id: world.nextPlantId++,
     x: Math.max(PLANT_SIZE, Math.min(W - PLANT_SIZE, x)),
     y: Math.max(PLANT_SIZE, Math.min(H - PLANT_SIZE, y)),
-    stage,
-    age: 0,
+    age,
+    maxAge,
     brain: { mem, pc: 0, energy, packet: { energy: 0, last: null } },
+    mutations: plantMutations(),
   };
   world.plants.push(p);
   return p;
@@ -360,26 +382,14 @@ function addPlant(world: World, x: number, y: number, stage: PlantStage, energy:
 // Plants: a seed spends energy to become a sprout; the rest breathe light with the
 // same interpreter as Плюша, and only a mature plant may drop a seed.
 function stepPlants(world: World): void {
-  for (const p of [...world.plants]) {                   // the new seeds wait for the next tick
-    p.age++;
-    const b = p.brain;
-
-    if (p.stage === "seed") {
-      b.energy -= PLANT_SPROUT_COST / PLANT_SPROUT_TICKS; // it lives off its reserves
-      if (p.age >= PLANT_SPROUT_TICKS && b.energy > 0) { p.stage = "sprout"; p.age = 0; }
-    } else {
-      runPlantCell(world, p);
-      if (p.stage === "sprout" && p.age >= PLANT_GROW_TICKS) { p.stage = "mature"; p.age = 0; }
-      else if (p.stage === "mature" && p.age >= PLANT_MATURE_TICKS) { p.stage = "old"; p.age = 0; }
-      else if (p.stage === "old" && p.age >= PLANT_OLD_TICKS) b.energy = 0;
-    }
-  }
-  world.plants = world.plants.filter(p => p.brain.energy > 0);
+  for (const p of [...world.plants]) runPlantCell(world, p);   // the new seeds wait for the next tick
+  world.plants = world.plants.filter(p => p.brain.energy > 0 && p.age < p.maxAge);
 }
 
-// shortcut: the plant interpreter repeats the creature one instead of sharing it —
-// plants have no costs, no death-by-mutation and no packet flush of their own. If a
-// third kind of brain appears, factor both into one runner.
+// shortcut: the plant interpreter repeats the creature one instead of sharing it.
+// Plants pay their own costs inside the mutation (see plantGrow), and their packet
+// pours into the head at PLANT_ENERGY_MAX, not HEAD_MAX. If a third kind of brain
+// appears, factor both into one runner.
 function runPlantCell(world: World, p: Plant): void {
   const b = p.brain;
   const cell = b.mem[b.pc];
@@ -390,21 +400,21 @@ function runPlantCell(world: World, p: Plant): void {
     return;
   }
   if (op === OP_USE) {
-    const gain = 2 * lightAt(world, p.x);               // a plant's light is free
-    b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + gain);
-    b.packet.last = { label: "Свет", amount: gain };
-    b.energy = Math.min(PLANT_ENERGY_MAX, b.energy + b.packet.energy);
-    b.packet.energy = 0;
+    const m = p.mutations[mutationOf(cell)];
+    const result = m ? m.act({ self: p as unknown as Creature, plant: p, world, light: lightAt(world, p.x), params: paramsOf(cell), packet: b.packet }) : 0;
+    b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
+    b.packet.last = { label: m ? m.label : `мутации ${mutationOf(cell)} нет`, amount: result };
   } else if (op === OP_SEED) {
     trySeed(world, p);
   }
   b.pc = (b.pc + 1) % PLANT_CELLS;
+  if (b.pc === 0) flush(b, PLANT_ENERGY_MAX);
 }
 
 // Only a mature plant with fuel makes a seed, and the child is not a copy:
 // a few cells of its memory are rewritten.
 function trySeed(world: World, p: Plant): void {
-  if (p.stage !== "mature") return;
+  if (stageOf(p) !== "mature") return;
   if (p.brain.energy < PLANT_SEED_MIN) return;
   if (world.plants.length >= PLANT_MAX) return;
 
@@ -416,7 +426,8 @@ function trySeed(world: World, p: Plant): void {
     world,
     p.x + Math.cos(a) * SEED_DIST,
     p.y + Math.sin(a) * SEED_DIST,
-    "seed",
+    0,
+    mutateMaxAge(p.maxAge, p.id, world.tick),
     taken * SEED_ENERGY,
     mutateMemory(p.brain.mem, p.id, world.tick),
   );
@@ -432,6 +443,13 @@ function mutateMemory(parent: number[], a: number, b: number): number[] {
     mem[i] = t < 0.6 ? useCell(0) : t < 0.75 ? OP_REST : t < 0.88 ? OP_SEED : jumpCell(Math.floor(rng() * mem.length));
   }
   return mem;
+}
+
+// The death age is inherited but not fixed: a seed may live a little longer or shorter.
+function mutateMaxAge(maxAge: number, a: number, b: number): number {
+  const rng = mulberry32(a * 31337 + b * 6151 + 5);
+  const factor = 1 - PLANT_AGE_MUT + rng() * PLANT_AGE_MUT * 2;
+  return Math.max(PLANT_OLD_AGE + 1, Math.round(maxAge * factor));
 }
 
 // Deterministic "random" direction: no rng, so snapshots stay exact.
