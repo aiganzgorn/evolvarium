@@ -1,13 +1,13 @@
 // Rendering only — reads the world, never mutates it.
-import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD, EAT_RANGE } from "./config.ts";
-import type { Creature, Organic, World } from "./sim.ts";
+import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD, EAT_RANGE, PLANT_SIZE } from "./config.ts";
+import type { Creature, Plant, World } from "./sim.ts";
 import { lightCenter } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
 import { attachPoint, legTip, type LegState } from "./mutations.ts";
 
 const BG = "#0d0f16";
 
-export type Selection = { kind: "creature" | "organic"; id: number } | null;
+export type Selection = { kind: "creature" | "plant"; id: number } | null;
 
 // One place converts world units → pixels, so clicks and drawing always agree.
 export function viewTransform(vw: number, vh: number): { s: number; ox: number; oy: number } {
@@ -24,11 +24,8 @@ export function draw(
   ctx.fillRect(0, 0, vw, vh);
   light(ctx, world, vw, vh, ox, s);
 
-  const me = world.creatures[0];
-  for (const o of world.organics) {
-    const inReach = !!me &&
-      Math.hypot(o.x - me.x, o.y - me.y) - o.size - me.size / 2 <= EAT_RANGE;
-    organic(ctx, o, ox, oy, s, selected?.kind === "organic" && selected.id === o.id, inReach);
+  for (const p of world.plants) {
+    plant(ctx, p, ox, oy, s, selected?.kind === "plant" && selected.id === p.id);
   }
   for (const c of world.creatures) {
     blob(ctx, c, ox, oy, s, world.tick, selected?.kind === "creature" && selected.id === c.id);
@@ -56,44 +53,28 @@ function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: numb
   ctx.fillRect(0, 0, vw, vh);
 }
 
-function organic(
-  ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number,
-  selected: boolean, inReach: boolean,
+// A plant is a single dot: exactly 2×2 world units, coloured by its stage.
+const PLANT_COLOR: Record<Plant["stage"], string> = {
+  seed: "#4f6b56",      // dull, waiting
+  sprout: "#8ee39c",    // young and bright
+  mature: "#c6f56e",    // full of energy
+  old: "#9c8f4f",       // fading
+};
+
+function plant(
+  ctx: CanvasRenderingContext2D, p: Plant, ox: number, oy: number, s: number, selected: boolean,
 ): void {
-  const cx = ox + o.x * s, cy = oy + o.y * s;
-  const r = Math.max(2, o.size * s);   // exactly the eating radius: what you see is what she can bite
-
-  ctx.fillStyle = "rgba(120,220,150,0.12)";
-  ctx.beginPath(); ctx.arc(cx, cy, r * 1.25, 0, Math.PI * 2); ctx.fill();
-
-  // leaves stay inside the rim, so the drawn bush never lies about its edge
-  ctx.fillStyle = "rgba(88,186,116,0.85)";
-  ctx.beginPath(); ctx.arc(cx, cy + r * 0.2, r * 0.68, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(120,214,142,0.9)";
-  ctx.beginPath(); ctx.arc(cx - r * 0.45, cy - r * 0.1, r * 0.45, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + r * 0.45, cy - r * 0.05, r * 0.48, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(196,248,206,0.85)";
-  ctx.beginPath(); ctx.arc(cx - r * 0.18, cy - r * 0.35, r * 0.26, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + r * 0.24, cy - r * 0.38, r * 0.2, 0, Math.PI * 2); ctx.fill();
-
-  // the edge itself: dim normally, gold when she is close enough to bite
-  ctx.strokeStyle = selected ? "rgba(255,215,110,0.9)"
-    : inReach ? "rgba(255,215,110,0.9)" : "rgba(150,235,170,0.45)";
-  ctx.lineWidth = inReach ? 2 : 1;
-  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  // never smaller than 2 real pixels, or the field turns into dust on small windows
+  const size = Math.max(2, PLANT_SIZE * s);
+  const cx = ox + p.x * s, cy = oy + p.y * s;
+  ctx.fillStyle = PLANT_COLOR[p.stage];
+  ctx.fillRect(cx - size / 2, cy - size / 2, size, size);
 
   if (selected) {
-    ctx.strokeStyle = "rgba(255,215,110,0.4)";
+    ctx.strokeStyle = "rgba(255,215,110,0.95)";
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeRect(cx - size / 2 - 3.5, cy - size / 2 - 3.5, size + 7, size + 7);
   }
-
-  ctx.strokeStyle = "rgba(74,120,80,0.9)";
-  ctx.lineWidth = Math.max(1, r * 0.12);
-  ctx.beginPath();
-  ctx.moveTo(cx, cy + r * 0.45);
-  ctx.lineTo(cx, cy + r * 0.95);
-  ctx.stroke();
 }
 
 function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number, s: number, tick: number, selected: boolean): void {

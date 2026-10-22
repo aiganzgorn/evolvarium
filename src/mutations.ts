@@ -3,7 +3,7 @@ import type { Creature, World } from "./sim.ts";
 import {
   W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD,
   EAT_RANGE, EAT_RATE, EAT_COST, PUSH_DIST, PUSH_COST, PHOTO_GAIN, PHOTO_COST,
-  LEG_TURN_COST, LEG_HOLD_COST,
+  LEG_TURN_COST, LEG_HOLD_COST, PLANT_SIZE,
 } from "./config.ts";
 
 export type Packet = { energy: number; last: { label: string; amount: number } | null };
@@ -50,6 +50,19 @@ export function photosynthesis(): Mutation {
     hint: `доход ${PHOTO_GAIN} × свет, цена ${PHOTO_COST}`,
     cost: PHOTO_COST,
     act: ({ light }) => PHOTO_GAIN * light,     // 3 energy at 100% light, 0.3 at 10%
+  };
+}
+
+// --- light for plants ---------------------------------------------------------
+// A plant is a solar panel: it gets 2 × light for nothing, because it cannot walk
+// into the sun. Same id as the creature's photosynthesis, so one key covers both.
+export function plantLight(): Mutation {
+  return {
+    id: "photosynthesis",
+    label: "Свет",
+    hint: "берёт 2 × свет, бесплатно",
+    cost: 0,
+    act: ({ light }) => 2 * light,
   };
 }
 
@@ -107,16 +120,16 @@ export function mouth(): Mutation {
     hint: `кусает куст, если его край в ${EAT_RANGE} ед. от тела, до ${EAT_RATE} энергии`,
     cost: EAT_COST,
     act({ self, world }) {
-      let best: World["organics"][number] | null = null;
+      let best: World["plants"][number] | null = null;
       let bestD = Infinity;
-      for (const o of world.organics) {
-        // gap between the bush rim and her own rim, not between centres
-        const d = Math.hypot(o.x - self.x, o.y - self.y) - o.size - self.size / 2;
-        if (d <= EAT_RANGE && d < bestD) { best = o; bestD = d; }
+      for (const p of world.plants) {
+        // gap between the plant and her own rim, not between centres
+        const d = Math.hypot(p.x - self.x, p.y - self.y) - PLANT_SIZE - self.size / 2;
+        if (d <= EAT_RANGE && d < bestD) { best = p; bestD = d; }
       }
       if (!best) return 0;
-      const bite = Math.min(best.energy, EAT_RATE);
-      best.energy -= bite;
+      const bite = Math.min(best.brain.energy, EAT_RATE);
+      best.brain.energy -= bite;
       return bite;
     },
   };

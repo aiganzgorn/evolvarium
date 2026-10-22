@@ -8,8 +8,10 @@ import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, ORG_BASE, BASE_GENOME,
   LIGHT_MIN, LIGHT_MAX, LIGHT_PERIOD, LIGHT_BAND, LEG_MIN, LEG_MAX,
-  BUSHES, START_CREATURES, RESPAWN, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, ORGANIC_GROW, ORGANIC_MAX,
-  ORGANIC_SEED_MIN, ORGANIC_SEED_GROWN, MAX_ORGANICS, ORGANIC_SEED_SHARE, SEED_ENERGY, SEED_DIST, SEED_CROWD, SEED_NEIGHBOURS, SEED_NEIGHBOURS_R, PUSH_DIST,
+  START_CREATURES, RESPAWN, PUSH_DIST,
+  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_SPROUT_COST,
+  PLANT_SPROUT_TICKS, PLANT_GROW_TICKS, PLANT_MATURE_TICKS, PLANT_OLD_TICKS,
+  PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
 } from "./config.ts";
 
 // --- brain language ----------------------------------------------------------
@@ -74,31 +76,34 @@ export type Creature = {
   mutations: Mutation[];
 };
 
-export type Organic = {
+export type PlantStage = "seed" | "sprout" | "mature" | "old";
+
+// A plant is 2×2 world units — it never grows in size, only in stage. It has the
+// same brain as Плюша (memory, pointer, energy, packet), just sixteen cells.
+export type Plant = {
   id: number;
   x: number;
   y: number;
-  energy: number;
-  size: number;       // grows from SEED_SIZE to ORGANIC_SIZE
-  mem: number[];      // ORGANIC_CELLS cells
-  pc: number;
+  stage: PlantStage;
+  age: number;        // ticks spent in the current stage
+  brain: Brain;
 };
 
 export type World = {
   rng: Rng;
   tick: number;
   creatures: Creature[];
-  organics: Organic[];
-  nextOrganicId: number;
+  plants: Plant[];
+  nextPlantId: number;
   nextCreatureId: number;
 };
 
-// An organic's brain: six turns of light, one seed, and back to the start.
+// A plant's brain: twelve turns of light, one seed, and back to the start.
 export function plantMemory(): number[] {
-  const mem = new Array<number>(ORGANIC_CELLS).fill(OP_REST);
-  for (let i = 0; i < ORGANIC_CELLS - 2; i++) mem[i] = useCell(0);   // photosynthesis
-  mem[ORGANIC_CELLS - 2] = OP_SEED;                                  // 3 — plant a seed
-  mem[ORGANIC_CELLS - 1] = jumpCell(0);
+  const mem = new Array<number>(PLANT_CELLS).fill(OP_REST);
+  for (let i = 0; i < PLANT_CELLS - 4; i++) mem[i] = useCell(0);     // photosynthesis
+  mem[PLANT_CELLS - 2] = OP_SEED;                                    // 3 — plant a seed
+  mem[PLANT_CELLS - 1] = jumpCell(0);
   return mem;
 }
 
@@ -163,10 +168,10 @@ function bornLegs(rng: Rng): Mutation[] {
   return legs;
 }
 
-export function createWorld(seed = 1, count = START_CREATURES, bushes = BUSHES): World {
+export function createWorld(seed = 1, count = START_CREATURES, plants = PLANTS): World {
   const rng = mulberry32(seed);
   const world: World = {
-    rng, tick: 0, creatures: [], organics: [], nextOrganicId: 0, nextCreatureId: 0,
+    rng, tick: 0, creatures: [], plants: [], nextPlantId: 0, nextCreatureId: 0,
   };
   for (let i = 0; i < count; i++) {
     world.creatures.push({
@@ -180,17 +185,23 @@ export function createWorld(seed = 1, count = START_CREATURES, bushes = BUSHES):
       mutations: [photosynthesis(), ...bornLegs(rng), mouth(), push()],
     });
   }
-  // A couple of bushes to start with, scattered by the seed.
-  for (let i = 0; i < bushes; i++) {
-    const x = ORGANIC_SIZE + rng() * (W - ORGANIC_SIZE * 2);
-    const y = ORGANIC_SIZE + rng() * (H - ORGANIC_SIZE * 2);
-    world.organics.push({
-      id: world.nextOrganicId++,
+  // Plants scattered by the seed, in every stage, so the field reads at once.
+  for (let i = 0; i < plants; i++) {
+    const x = PLANT_SIZE + rng() * (W - PLANT_SIZE * 2);
+    const y = PLANT_SIZE + rng() * (H - PLANT_SIZE * 2);
+    const t = rng();
+    const stage: PlantStage = t < 0.3 ? "seed" : t < 0.55 ? "sprout" : t < 0.85 ? "mature" : "old";
+    world.plants.push({
+      id: world.nextPlantId++,
       x, y,
-      energy: ORGANIC_MAX * (0.4 + rng() * 0.4),
-      size: ORGANIC_SIZE * (0.7 + rng() * 0.3),
-      mem: plantMemory(),
-      pc: Math.floor(rng() * ORGANIC_CELLS),
+      stage,
+      age: Math.floor(rng() * 100),
+      brain: {
+        mem: plantMemory(),
+        pc: Math.floor(rng() * PLANT_CELLS),
+        energy: PLANT_ENERGY_MAX * (0.25 + rng() * 0.7),
+        packet: { energy: 0, last: null },
+      },
     });
   }
   return world;
@@ -233,8 +244,8 @@ export function lightAt(world: World, x: number): number {
 export type Snapshot = {
   tick: number;
   creatures: Creature[];
-  organics: Organic[];
-  nextOrganicId: number;
+  plants: Plant[];
+  nextPlantId: number;
   nextCreatureId: number;
 };
 
@@ -245,8 +256,8 @@ export function snapshot(world: World): Snapshot {
   return {
     tick: world.tick,
     creatures: world.creatures.map(copyCreature),
-    organics: world.organics.map(copyOrganic),
-    nextOrganicId: world.nextOrganicId,
+    plants: world.plants.map(copyPlant),
+    nextPlantId: world.nextPlantId,
     nextCreatureId: world.nextCreatureId,
   };
 }
@@ -254,13 +265,13 @@ export function snapshot(world: World): Snapshot {
 export function restore(world: World, s: Snapshot): void {
   world.tick = s.tick;
   world.creatures = s.creatures.map(copyCreature);
-  world.organics = s.organics.map(copyOrganic);
-  world.nextOrganicId = s.nextOrganicId;
+  world.plants = s.plants.map(copyPlant);
+  world.nextPlantId = s.nextPlantId;
   world.nextCreatureId = s.nextCreatureId;
 }
 
-function copyOrganic(o: Organic): Organic {
-  return { ...o, mem: o.mem.slice() };
+function copyPlant(p: Plant): Plant {
+  return { ...p, brain: { ...p.brain, mem: p.brain.mem.slice(), packet: { ...p.brain.packet } } };
 }
 
 function copyCreature(c: Creature): Creature {
@@ -307,11 +318,10 @@ export function stepWorld(world: World): void {
     if (b.pc === 0) flush(b);
   }
 
-  stepOrganics(world);                                   // plants grow and seed first
-  for (const c of world.creatures) {                     // then the fallen become new plants
+  stepPlants(world);                                     // plants grow and seed first
+  for (const c of world.creatures) {                     // then the fallen leave a seed
     if (c.brain.energy > 0) continue;
-    if (world.organics.length >= MAX_ORGANICS) continue; // the field is full
-    world.organics.push(organic(world, c.x, c.y, ORG_BASE + Math.max(0, c.brain.energy), SEED_SIZE, plantMemory()));
+    addPlant(world, c.x, c.y, "seed", ORG_BASE + Math.max(0, c.brain.energy), plantMemory());
   }
   world.creatures = world.creatures.filter(c => c.brain.energy > 0);
 
@@ -334,60 +344,98 @@ function respawn(world: World): void {
   });
 }
 
-function organic(world: World, x: number, y: number, energy: number, size: number, mem: number[]): Organic {
-  return { id: world.nextOrganicId++, x, y, energy, size, mem, pc: 0 };
+function addPlant(world: World, x: number, y: number, stage: PlantStage, energy: number, mem: number[]): Plant {
+  const p: Plant = {
+    id: world.nextPlantId++,
+    x: Math.max(PLANT_SIZE, Math.min(W - PLANT_SIZE, x)),
+    y: Math.max(PLANT_SIZE, Math.min(H - PLANT_SIZE, y)),
+    stage,
+    age: 0,
+    brain: { mem, pc: 0, energy, packet: { energy: 0, last: null } },
+  };
+  world.plants.push(p);
+  return p;
 }
 
-// Plants: grow, photosynthesise, and now and then drop a seed.
-function stepOrganics(world: World): void {
-  for (const o of [...world.organics]) {                 // the new seeds wait for the next tick
-    if (o.energy <= 0) continue;
-    o.size = Math.min(ORGANIC_SIZE, o.size + ORGANIC_GROW);
+// Plants: a seed spends energy to become a sprout; the rest breathe light with the
+// same interpreter as Плюша, and only a mature plant may drop a seed.
+function stepPlants(world: World): void {
+  for (const p of [...world.plants]) {                   // the new seeds wait for the next tick
+    p.age++;
+    const b = p.brain;
 
-    const cell = o.mem[o.pc];
-    const op = opOf(cell);
-    const next = (o.pc + 1) % ORGANIC_CELLS;
-
-    if (op === OP_JUMP) {
-      o.pc = jumpTarget(cell) % ORGANIC_CELLS;
-      continue;
+    if (p.stage === "seed") {
+      b.energy -= PLANT_SPROUT_COST / PLANT_SPROUT_TICKS; // it lives off its reserves
+      if (p.age >= PLANT_SPROUT_TICKS && b.energy > 0) { p.stage = "sprout"; p.age = 0; }
+    } else {
+      runPlantCell(world, p);
+      if (p.stage === "sprout" && p.age >= PLANT_GROW_TICKS) { p.stage = "mature"; p.age = 0; }
+      else if (p.stage === "mature" && p.age >= PLANT_MATURE_TICKS) { p.stage = "old"; p.age = 0; }
+      else if (p.stage === "old" && p.age >= PLANT_OLD_TICKS) b.energy = 0;
     }
-    if (op === OP_USE) {
-      // plants do not pay for their own light; they just grow toward the sun
-      o.energy = Math.min(ORGANIC_MAX, o.energy + 2 * lightAt(world, o.x));
-    } else if (op === OP_SEED) {
-      plantSeed(world, o);
-    }
-    o.pc = next;
   }
-  world.organics = world.organics.filter(o => o.energy > 0);
+  world.plants = world.plants.filter(p => p.brain.energy > 0);
 }
 
-// Half the energy goes into a seed; the seed starts with a tenth of it, nearby.
-function plantSeed(world: World, o: Organic): void {
-  if (world.organics.length >= MAX_ORGANICS) return;                       // no room
-  if (o.size < ORGANIC_SIZE * ORGANIC_SEED_GROWN) return;                  // not grown yet
-  if (o.energy < ORGANIC_SEED_MIN) return;                                 // not enough fuel
-  const left = o.energy * SEED_ENERGY;
-  o.energy -= o.energy * ORGANIC_SEED_SHARE;
+// shortcut: the plant interpreter repeats the creature one instead of sharing it —
+// plants have no costs, no death-by-mutation and no packet flush of their own. If a
+// third kind of brain appears, factor both into one runner.
+function runPlantCell(world: World, p: Plant): void {
+  const b = p.brain;
+  const cell = b.mem[b.pc];
+  const op = opOf(cell);
 
-  const a = seedAngle(o, world.tick);
-  const dist = o.size / 2 + SEED_DIST;
-  const x = Math.max(ORGANIC_SIZE, Math.min(W - ORGANIC_SIZE, o.x + Math.cos(a) * dist));
-  const y = Math.max(ORGANIC_SIZE, Math.min(H - ORGANIC_SIZE, o.y + Math.sin(a) * dist));
-  const crowded = world.organics.some(p =>
-    Math.hypot(p.x - x, p.y - y) < ORGANIC_SIZE * SEED_CROWD);
-  if (crowded) return;                                                     // no room here
+  if (op === OP_JUMP) {
+    b.pc = jumpTarget(cell) % PLANT_CELLS;
+    return;
+  }
+  if (op === OP_USE) {
+    const gain = 2 * lightAt(world, p.x);               // a plant's light is free
+    b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + gain);
+    b.packet.last = { label: "Свет", amount: gain };
+    b.energy = Math.min(PLANT_ENERGY_MAX, b.energy + b.packet.energy);
+    b.packet.energy = 0;
+  } else if (op === OP_SEED) {
+    trySeed(world, p);
+  }
+  b.pc = (b.pc + 1) % PLANT_CELLS;
+}
 
-  const neighbours = world.organics.filter(p =>
-    Math.hypot(p.x - x, p.y - y) < SEED_NEIGHBOURS_R).length;
-  if (neighbours >= SEED_NEIGHBOURS) return;                               // this patch is full
+// Only a mature plant with fuel makes a seed, and the child is not a copy:
+// a few cells of its memory are rewritten.
+function trySeed(world: World, p: Plant): void {
+  if (p.stage !== "mature") return;
+  if (p.brain.energy < PLANT_SEED_MIN) return;
+  if (world.plants.length >= PLANT_MAX) return;
 
-  world.organics.push(organic(world, x, y, left, SEED_SIZE, plantMemory()));
+  const taken = p.brain.energy * PLANT_SEED_SHARE;
+  p.brain.energy -= taken;
+
+  const a = hashAngle(p.id, world.tick);
+  addPlant(
+    world,
+    p.x + Math.cos(a) * SEED_DIST,
+    p.y + Math.sin(a) * SEED_DIST,
+    "seed",
+    taken * SEED_ENERGY,
+    mutateMemory(p.brain.mem, p.id, world.tick),
+  );
+}
+
+// The child's memory: the parent's, with a few cells rewritten.
+function mutateMemory(parent: number[], a: number, b: number): number[] {
+  const rng = mulberry32(a * 7919 + b * 104729 + 13);
+  const mem = parent.slice();
+  for (let k = 0; k < PLANT_MUTATE_CELLS; k++) {
+    const i = Math.floor(rng() * mem.length);
+    const t = rng();
+    mem[i] = t < 0.6 ? useCell(0) : t < 0.75 ? OP_REST : t < 0.88 ? OP_SEED : jumpCell(Math.floor(rng() * mem.length));
+  }
+  return mem;
 }
 
 // Deterministic "random" direction: no rng, so snapshots stay exact.
-function seedAngle(o: Organic, tick: number): number {
-  const v = Math.sin(o.id * 127.1 + tick * 311.7) * 43758.5453;
+function hashAngle(id: number, tick: number): number {
+  const v = Math.sin(id * 127.1 + tick * 311.7) * 43758.5453;
   return (v - Math.floor(v)) * Math.PI * 2;
 }

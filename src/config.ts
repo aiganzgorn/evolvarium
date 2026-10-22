@@ -40,22 +40,22 @@ export const LEG_SPREAD = (LEG_SPREAD_DEG * Math.PI) / 180;
 export const START_CREATURES = 0;      // how many Плюши are born at the start
 export const RESPAWN = false;          // a new Плюша after the last one dies
 
-// organic (plants that grow, photosynthesise and scatter seeds)
-export const BUSHES = 0;               // bushes placed at the start
-export const ORGANIC_CELLS = 8;        // tiny brain: 6 photosynthesis, 1 seed, 1 jump
-export const ORGANIC_SIZE = 26;        // full radius in world units
-export const SEED_SIZE = 6;            // a seed starts this small
-export const ORGANIC_GROW = 0.12;      // growth per tick
-export const ORGANIC_MAX = 60;         // it cannot store more energy
-export const ORGANIC_SEED_MIN = 30;    // no seed without this much energy
-export const ORGANIC_SEED_GROWN = 0.85; // ...and only once it is nearly full size
-export const MAX_ORGANICS = 16;        // the world cannot feed more bushes
-export const ORGANIC_SEED_SHARE = 0.5; // half of the energy is spent on a seed
-export const SEED_ENERGY = 0.1;        // the seed gets a tenth of the parent's energy
-export const SEED_DIST = 46;           // how far the seed lands from the parent
-export const SEED_CROWD = 1.6;         // no seed if another bush is closer than size × this
-export const SEED_NEIGHBOURS = 3;      // ...or if this many bushes already grow nearby
-export const SEED_NEIGHBOURS_R = 140;  // "nearby" means within this distance
+// plants: 2×2 pixels each, sixteen cells of memory, four stages
+export const PLANT_CELLS = 16;
+export const PLANT_SIZE = 2;           // world units — exactly 2×2 pixels on the reference screen
+export const PLANTS = 240;             // seeds and young plants scattered at the start
+export const PLANT_MAX = 4000;         // hard cap so the field cannot explode
+export const PLANT_ENERGY_MAX = 40;    // a plant cannot store more
+export const PLANT_SPROUT_COST = 6;    // energy a seed spends to become a sprout
+export const PLANT_SPROUT_TICKS = 60;  // ...spread over this many ticks
+export const PLANT_GROW_TICKS = 180;   // sprout → mature
+export const PLANT_MATURE_TICKS = 600; // mature → old
+export const PLANT_OLD_TICKS = 300;    // old → gone
+export const PLANT_SEED_MIN = 24;      // no seed below this energy
+export const PLANT_SEED_SHARE = 0.5;   // part of the parent's energy that goes to the seed
+export const SEED_ENERGY = 0.6;        // the child gets this share of what was taken
+export const SEED_DIST = 14;           // how far the seed lands from the parent
+export const PLANT_MUTATE_CELLS = 4;   // how many cells of the child's memory differ
 
 // photosynthesis and the rest of the mutation economy
 export const PHOTO_GAIN = 3;        // income = PHOTO_GAIN × light
@@ -71,7 +71,7 @@ export const PUSH_DIST = 28;        // how far one shove moves the body
 export const PUSH_COST = 2;         // ...and a shove is work too
 
 // death
-export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left
+export const ORG_BASE = 5;          // a fallen Плюша leaves a seed with this much energy
 
 // debug
 export const HISTORY_TICKS = 200;   // how many ticks you can rewind

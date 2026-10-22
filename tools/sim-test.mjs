@@ -11,7 +11,9 @@ import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT_MIN, LIGHT_MAX, ORG_BASE,
   EAT_RATE, EAT_RANGE, PUSH_DIST, PHOTO_GAIN, PHOTO_COST, EAT_COST, PUSH_COST, LEG_TURN_COST, LEG_HOLD_COST,
   LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
-  BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, MAX_ORGANICS, SEED_NEIGHBOURS,
+  PLANT_CELLS, PLANT_SIZE, PLANTS, PLANT_MAX, PLANT_ENERGY_MAX, PLANT_SPROUT_COST,
+  PLANT_SPROUT_TICKS, PLANT_GROW_TICKS, PLANT_MATURE_TICKS, PLANT_OLD_TICKS,
+  PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, SEED_DIST, PLANT_MUTATE_CELLS,
 } from "../src/config.ts";
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
@@ -22,7 +24,7 @@ const shape = (w) => ({
     id: c.id, x: c.x, y: c.y, angle: c.angle, size: c.size, genome: c.genome,
     brain: c.brain, legs: c.mutations.map(m => m.leg ?? null),
   })),
-  organics: w.organics.map(o => ({ id: o.id, x: o.x, y: o.y, energy: o.energy, size: o.size, mem: o.mem, pc: o.pc })),
+  plants: w.plants.map(pl => ({ id: pl.id, x: pl.x, y: pl.y, stage: pl.stage, age: pl.age, brain: pl.brain })),
 });
 
 // --- the cell language -------------------------------------------------------
@@ -59,20 +61,28 @@ assert.equal(p.brain.mem.length, MEM_CELLS, "память на 60 ячеек");
 assert.equal(p.brain.energy, START_ENERGY, "энергия на старте");
 assert.equal(p.brain.packet.energy, 0, "пакет пуст");
 assert.deepEqual(p.mutations.map(m => m.id), ["photosynthesis", "leg", "leg", "mouth", "push"], "фотосинтез, две ножки, рот, толчок");
-assert.equal(a.organics.length, 2, "на старте пара кустов");
+assert.equal(a.plants.length, 2, "на старте два растения");
 
-// the shipped world itself starts empty — that is a choice in config.ts, not a bug
+// the shipped world: no Плюша, but the plant field is there
 const shipped = createWorld(1);
-assert.equal(shipped.creatures.length, 0, "по умолчанию мир пуст");
-assert.equal(shipped.organics.length, 0, "и кустов в нём нет");
-for (const o of a.organics) {
-  assert.equal(o.mem.length, ORGANIC_CELLS, "у органики восемь ячеек");
-  assert.equal(o.mem[ORGANIC_CELLS - 2], OP_SEED, "одна ячейка — семечко");
-  assert.equal(o.mem[ORGANIC_CELLS - 1], jumpCell(0), "последняя — возврат в начало");
-  assert.ok(o.energy > 0 && o.size > 0, "куст живой и растущий");
+assert.equal(shipped.creatures.length, 0, "по умолчанию нет Плюши");
+assert.equal(shipped.plants.length, PLANTS, "но поле растений есть");
+
+// --- plants: sixteen cells, four stages, same language -----------------------
+for (const pl of a.plants) {
+  assert.equal(pl.brain.mem.length, PLANT_CELLS, "у растения шестнадцать ячеек");
+  assert.equal(pl.brain.mem[PLANT_CELLS - 2], OP_SEED, "одна ячейка — семя");
+  assert.equal(pl.brain.mem[PLANT_CELLS - 1], jumpCell(0), "последняя — возврат в начало");
+  assert.ok(["seed", "sprout", "mature", "old"].includes(pl.stage), "стадия из четырёх");
 }
-assert.deepEqual(createWorld(4, 1, 2).organics.map(o => [Math.round(o.x), Math.round(o.y)]),
-  createWorld(4, 1, 2).organics.map(o => [Math.round(o.x), Math.round(o.y)]), "кусты расставлены от сида");
+const seedField = createWorld(4, 0, 40);
+const stages = new Set(seedField.plants.map(pl => pl.stage));
+assert.ok(stages.size >= 3, "на старте поле в разных стадиях");
+assert.deepEqual(createWorld(4, 0, 20).plants.map(pl => [Math.round(pl.x), Math.round(pl.y)]),
+  createWorld(4, 0, 20).plants.map(pl => [Math.round(pl.x), Math.round(pl.y)]), "растения расставлены от сида");
+
+// a plant never grows in size — it is 2×2 whatever its stage
+assert.equal(PLANT_SIZE, 2, "растение занимает 2×2 пикселя");
 
 // --- the starting memory comes from the seed ---------------------------------
 const seedA = createWorld(7, 1, 2), seedB = createWorld(7, 1, 2), seedC = createWorld(8, 1, 2);
@@ -188,18 +198,17 @@ stepWorld(unknown);
 assert.equal(unknown.creatures[0].brain.energy, START_ENERGY, "неизвестная мутация ничего не стоит и ничего не даёт");
 assert.equal(unknown.creatures[0].brain.packet.energy, 0, "и ничего не возвращает");
 
-const dying = createWorld(1, 1, 2);
-dying.organics.length = 0;                               // start with an empty field
+// --- death: she leaves a seed where she fell ---------------------------------
+const dying = createWorld(1, 1, 0);
 dying.creatures[0].brain.mem.fill(jumpCell(0));          // jump to itself, 1 energy per tick
 const dieAt = START_ENERGY / JUMP_COST;
 for (let i = 0; i < dieAt - 1; i++) stepWorld(dying);
 assert.equal(dying.creatures.length, 1, "ещё жива перед последним тиком");
-assert.equal(dying.creatures[0].id, 0, "это всё ещё первая Плюша");
 stepWorld(dying);
 assert.equal(dying.tick, dieAt, "умерла ровно на своём тике");
-assert.equal(dying.organics.length, 1, "оставила органику");
-assert.equal(dying.organics[0].energy, ORG_BASE, "органика = ORG_BASE + оставшаяся энергия");
-assert.equal(dying.organics[0].size, SEED_SIZE, "и начинает как семечко");
+assert.equal(dying.plants.length, 1, "на её месте осталось семя");
+assert.equal(dying.plants[0].stage, "seed", "именно семя");
+assert.equal(dying.plants[0].brain.energy, ORG_BASE, "с энергией ORG_BASE");
 
 // RESPAWN is off in the shipped world: the dead one simply stays dead
 assert.equal(dying.creatures.length, 0, "без RESPAWN новая Плюша не рождается");
@@ -208,8 +217,6 @@ assert.equal(dying.creatures.length, 0, "без RESPAWN новая Плюша н
 const afterDeath = dying.tick;
 for (let i = 0; i < 200; i++) stepWorld(dying);
 assert.equal(dying.tick, afterDeath + 200, "мир живёт дальше");
-assert.ok(dying.creatures.length <= 1, "плюша одна");
-assert.ok(dying.organics.every(o => o.energy > 0), "у живой органики энергия положительная");
 
 // --- two legs: mirrored hinges, one foot on the ground at a time ---------------
 const tl = createWorld(5, 1, 2);
@@ -249,44 +256,90 @@ for (let i = 0; i < 40; i++) eDo([2, 40]);               // and try to drag the 
 assert.ok(ec.x <= W - ec.size / 2 + 1e-9, `тело не вышло за правый край (${ec.x.toFixed(1)})`);
 assert.ok(ec.x >= ec.size / 2 - 1e-9 && ec.y >= ec.size / 2 - 1e-9 && ec.y <= H - ec.size / 2 + 1e-9, "и не вышло за остальные");
 
-// --- a crowded patch stops reproducing --------------------------------------
-const crowd = createWorld(9, 1, 2);
-crowd.creatures.length = 0;
-crowd.organics.length = 0;
-const addBush = (x, y, mem) =>
-  crowd.organics.push({ id: crowd.nextOrganicId++, x, y, energy: 60, size: ORGANIC_SIZE, mem, pc: 0 });
-addBush(W / 2, H / 2, new Array(ORGANIC_CELLS).fill(OP_SEED));                    // tries to seed every tick
-for (let k = 0; k < SEED_NEIGHBOURS; k++) {
-  addBush(W / 2 + 30 + k * 20, H / 2, new Array(ORGANIC_CELLS).fill(OP_REST));
-}
-const crowdedBefore = crowd.organics.length;
-for (let i = 0; i < 40; i++) stepWorld(crowd);
-assert.equal(crowd.organics.length, crowdedBefore,
-  `рядом уже ${SEED_NEIGHBOURS} куста — новые семена не появляются (${crowd.organics.length})`);
-const garden = createWorld(3, 1, 2);
-garden.creatures[0].brain.energy = 0;                    // she dies, the garden stays
-for (let i = 0; i < 150; i++) stepWorld(garden);
-assert.ok(garden.organics.length > BUSHES, `кусты размножились (${garden.organics.length})`);
-assert.ok(garden.organics.some(o => o.size < ORGANIC_SIZE * 0.9), "среди них есть подрастающее семечко");
-for (let i = 0; i < 900; i++) stepWorld(garden);
-assert.ok(garden.organics.length <= MAX_ORGANICS, `и не вышли за предел (${garden.organics.length})`);
-for (const o of garden.organics) {
-  assert.ok(o.x >= ORGANIC_SIZE && o.x <= W - ORGANIC_SIZE, "куст не выглядывает за край по x");
-  assert.ok(o.y >= ORGANIC_SIZE && o.y <= H - ORGANIC_SIZE, "куст не выглядывает за край по y");
-  assert.ok(o.energy > 0, "живой куст не в минусе");
-  assert.ok(o.size <= ORGANIC_SIZE, "куст не перерастает себя");
+// --- plants: the four stages ------------------------------------------------
+const life = (stage, energy, mem) => {
+  const w = createWorld(1, 0, 1);
+  const pl = w.plants[0];
+  pl.stage = stage; pl.age = 0; pl.brain.energy = energy;
+  if (mem) pl.brain.mem = mem;
+  return { w, pl };
+};
+
+// a seed lives off its reserves and becomes a sprout
+{
+  const { w, pl } = life("seed", PLANT_SPROUT_COST + 2, new Array(PLANT_CELLS).fill(OP_REST));
+  for (let i = 0; i < PLANT_SPROUT_TICKS; i++) stepWorld(w);
+  assert.equal(pl.stage, "sprout", "семя проросло ростком");
+  assert.ok(pl.brain.energy < PLANT_SPROUT_COST + 2, "и потратило энергию на рост");
+  assert.equal(pl.age, 0, "возраст считается заново");
 }
 
-// --- mouth: bites a bush and takes its energy --------------------------------
-const fed = createWorld(1, 1, 2);
-fed.organics.length = 0;
-fed.organics.push({ id: 99, x: W / 2 + 30, y: H / 2, energy: 40, size: ORGANIC_SIZE, mem: plantMemory(), pc: 0 });
+// a seed without reserves dies
+{
+  const { w } = life("seed", PLANT_SPROUT_COST / 4, new Array(PLANT_CELLS).fill(OP_REST));
+  for (let i = 0; i < PLANT_SPROUT_TICKS; i++) stepWorld(w);
+  assert.equal(w.plants.length, 0, "семя без энергии погибает");
+}
+
+// growth, ageing and death run on time
+{
+  const { w, pl } = life("sprout", 20);
+  for (let i = 0; i < PLANT_GROW_TICKS; i++) stepWorld(w);
+  assert.equal(pl.stage, "mature", "росток стал зрелым");
+  for (let i = 0; i < PLANT_MATURE_TICKS; i++) stepWorld(w);
+  assert.equal(pl.stage, "old", "зрелое стало старым");
+  pl.brain.energy = 20;
+  for (let i = 0; i < PLANT_OLD_TICKS; i++) stepWorld(w);
+  assert.ok(!w.plants.includes(pl), "старое растение уходит");
+}
+
+// only a mature plant seeds, and only with enough energy
+{
+  const seedMem = new Array(PLANT_CELLS).fill(OP_SEED);
+  const rich = life("mature", PLANT_SEED_MIN + 10, seedMem);
+  const plantsBefore = rich.w.plants.length;
+  stepWorld(rich.w);
+  assert.equal(rich.w.plants.length, plantsBefore + 1, "зрелое растение даёт семя");
+
+  const child = rich.w.plants[1];
+  assert.equal(child.stage, "seed", "ребёнок — семя");
+  assert.equal(child.brain.mem.length, PLANT_CELLS, "у него шестнадцать ячеек");
+  assert.ok(near(child.brain.energy, (PLANT_SEED_MIN + 10) * PLANT_SEED_SHARE * SEED_ENERGY),
+    "ребёнок получил свою долю");
+  assert.ok(near(rich.pl.brain.energy, (PLANT_SEED_MIN + 10) * (1 - PLANT_SEED_SHARE)),
+    "родитель отдал половину");
+  assert.ok(Math.hypot(child.x - rich.pl.x, child.y - rich.pl.y) <= SEED_DIST + 1e-9, "семя рядом");
+  assert.notDeepEqual(child.brain.mem, rich.pl.brain.mem, "часть ячеек памяти изменена");
+  assert.equal(child.brain.mem.filter(c => c !== rich.pl.brain.mem[child.brain.mem.indexOf(c)]).length,
+    PLANT_MUTATE_CELLS, "изменились ровно PLANT_MUTATE_CELLS ячеек");
+
+  const poor = life("mature", PLANT_SEED_MIN - 1, seedMem);
+  stepWorld(poor.w);
+  assert.equal(poor.w.plants.length, 1, "без энергии семени нет");
+
+  const young = life("sprout", PLANT_SEED_MIN + 10, seedMem);
+  stepWorld(young.w);
+  assert.equal(young.w.plants.length, 1, "росток не даёт семени");
+}
+
+// a plant stores no more than its ceiling
+{
+  const { w, pl } = life("mature", PLANT_ENERGY_MAX - 1);
+  for (let i = 0; i < 40; i++) stepWorld(w);
+  assert.ok(pl.brain.energy <= PLANT_ENERGY_MAX, "потолок растения держит");
+}
+
+// --- mouth: bites a plant and takes its energy -------------------------------
+const fed = createWorld(1, 1, 1);
 const eater = fed.creatures[0];
+const meal = fed.plants[0];
+meal.x = eater.x + 20; meal.y = eater.y;
+meal.brain.energy = 30;
 const mouthMut = eater.mutations[3];
 const bite = mouthMut.act({ self: eater, world: fed, light: 0.5, params: [0, 0, 0, 0], packet: { energy: 0, last: null } });
 assert.equal(bite, EAT_RATE, "кусает не больше EAT_RATE");
-assert.equal(fed.organics[0].energy, 40 - EAT_RATE, "у куста стало меньше энергии");
-fed.organics[0].x = W - 10;                              // far away now
+assert.equal(meal.brain.energy, 30 - EAT_RATE, "у растения стало меньше энергии");
+meal.x = eater.x + 400;                                  // far away now
 assert.equal(mouthMut.act({ self: eater, world: fed, light: 0.5, params: [], packet: { energy: 0, last: null } }), 0,
   "далеко — не достаёт");
 
@@ -329,4 +382,4 @@ for (let i = 0; i < 30; i++) stepWorld(rew);
 assert.equal(keep.tick, keptTick, "снимок не изменился");
 assert.equal(keep.creatures[0].brain.energy, keptEnergy, "энергия в снимке не изменилась");
 
-console.log(`ok — язык ячеек (200/155/20101120000), ножка по параметрам, органика с семечками, откат, смерть`);
+console.log(`ok — язык ячеек (200/155/20101120000), ножка, растения 16 ячеек и 4 стадии, откат, смерть`);

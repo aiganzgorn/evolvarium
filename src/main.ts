@@ -8,8 +8,7 @@ import { mulberry32 } from "./rng.ts";
 import { draw, viewTransform, type Selection } from "./render.ts";
 import {
   TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W, RESPAWN,
-  ORGANIC_MAX, ORGANIC_SIZE, ORGANIC_SEED_MIN, ORGANIC_SEED_SHARE, SEED_ENERGY,
-  SEED_NEIGHBOURS, SEED_NEIGHBOURS_R,
+  PLANT_ENERGY_MAX, PLANT_SEED_MIN, PLANT_SEED_SHARE, SEED_ENERGY, PLANT_MUTATE_CELLS,
 } from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -113,18 +112,22 @@ function cellLabel(v: number): string {
   return "·";
 }
 
+const PLANT_STAGE: Record<string, string> = {
+  seed: "семя", sprout: "росток", mature: "зрелое", old: "старое",
+};
+
 function paintPanel(): void {
   const creature = sel?.kind === "creature" ? world.creatures.find(c => c.id === sel!.id) : undefined;
-  const plant = sel?.kind === "organic" ? world.organics.find(o => o.id === sel!.id) : undefined;
+  const plant = sel?.kind === "plant" ? world.plants.find(p => p.id === sel!.id) : undefined;
   if (!creature && !plant) { panel.hidden = true; return; }
 
-  const mem = creature ? creature.brain.mem : plant!.mem;
-  const pc = creature ? creature.brain.pc : plant!.pc;
+  const mem = creature ? creature.brain.mem : plant!.brain.mem;
+  const pc = creature ? creature.brain.pc : plant!.brain.pc;
 
-  $("pname").textContent = creature ? "Плюша" : `Куст #${plant!.id}`;
-  pEnergy.textContent = fmt(creature ? creature.brain.energy : plant!.energy);
-  $("pmaxlabel").textContent = creature ? "потолок головы" : "прочность";
-  pMax.textContent = String(creature ? HEAD_MAX : ORGANIC_MAX);
+  $("pname").textContent = creature ? "Плюша" : `Растение #${plant!.id}`;
+  pEnergy.textContent = fmt(creature ? creature.brain.energy : plant!.brain.energy);
+  $("pmaxlabel").textContent = creature ? "потолок головы" : "потолок растения";
+  pMax.textContent = String(creature ? HEAD_MAX : PLANT_ENERGY_MAX);
   pPc.textContent = `${pc} · ${OPS[opOf(mem[pc])] ?? "?"}`;
 
   $("ppacketbox").hidden = !creature;
@@ -142,13 +145,13 @@ function paintPanel(): void {
   for (const id of rows) $(id).hidden = !plant;
   $("legend").textContent = creature
     ? "2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка"
-    : "2·00 — фотосинтез · семя — посадить семечко · 1→NN — прыжок · только просмотр";
+    : "2·00 — свет · семя — посадить семечко · 1→NN — прыжок · только просмотр";
   if (plant) {
-    $("psize").textContent = `${Math.round(plant.size)} / ${ORGANIC_SIZE}`;
-    $("pseedminv").textContent = `${ORGANIC_SEED_MIN} · сейчас ${Math.round(plant.energy)}`;
-    $("pseedsharev").textContent = `${Math.round(ORGANIC_SEED_SHARE * 100)}% энергии`;
+    $("psize").textContent = `${PLANT_STAGE[plant.stage]} · ${plant.age} тик.`;
+    $("pseedminv").textContent = `${PLANT_SEED_MIN} · сейчас ${fmt(plant.brain.energy)}`;
+    $("pseedsharev").textContent = `${Math.round(PLANT_SEED_SHARE * 100)}% энергии`;
     $("pseedchildv").textContent = `${Math.round(SEED_ENERGY * 100)}% от забранного`;
-    $("pseednearv").textContent = `${SEED_NEIGHBOURS} куста в ${SEED_NEIGHBOURS_R} ед.`;
+    $("pseednearv").textContent = `${PLANT_MUTATE_CELLS} ячейки`;
   }
 
   buildCells(mem.length, !!creature);
@@ -257,12 +260,13 @@ canvas.addEventListener("click", (e) => {
   const wx = (e.clientX - ox) / s, wy = (e.clientY - oy) / s;
 
   const creature = world.creatures[0];
-  const plant = [...world.organics].reverse().find(o => Math.hypot(wx - o.x, wy - o.y) <= o.size * 1.2);
+  // a plant is 2×2 pixels, so the click target is generous — 6 px around it
+  const plant = [...world.plants].reverse().find(p => Math.hypot(wx - p.x, wy - p.y) <= 6);
 
   const next: Sel =
     creature && Math.hypot(wx - creature.x, wy - creature.y) <= creature.size / 2
       ? { kind: "creature", id: creature.id }
-      : plant ? { kind: "organic", id: plant.id } : null;
+      : plant ? { kind: "plant", id: plant.id } : null;
 
   if (!next) { sel = null; panel.hidden = true; return; }
   if (sel && sel.kind === next.kind && sel.id === next.id) {   // second click closes it
@@ -306,7 +310,7 @@ function setPaused(v: boolean): void {
 addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
-    if (!RESPAWN && world.creatures.length === 0 && world.organics.length === 0) return;   // nothing left to run
+    if (!RESPAWN && world.creatures.length === 0 && world.plants.length === 0) return;   // nothing left to run
     if (paused) started = true;
     setPaused(!paused);
     return;
@@ -345,7 +349,7 @@ function frame(now: number): void {
   $("who").textContent = p ? "Плюша" : "мир";
   $("peek").hidden = !p;
   nEl.textContent = String(world.creatures.length);
-  orgEl.textContent = String(world.organics.length);
+  orgEl.textContent = String(world.plants.length);
   energyEl.textContent = p ? fmt(p.brain.energy) : "—";
   packetEl.textContent = p ? fmt(p.brain.packet.energy) : "—";
   histEl.textContent = String(history.length);
