@@ -17,7 +17,7 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 
 const tickEl = $("tick"), nEl = $("n"), seedEl = $("seed"), stateEl = $("state");
 const hintEl = $("hint"), energyEl = $("energy"), packetEl = $("packet");
-const orgEl = $("org"), lightEl = $("light"), histEl = $("hist");
+const orgEl = $("org"), lightEl = $("light"), histEl = $("hist"), speedEl = $("speed");
 const panel = $("panel"), pEnergy = $("penergy"), pMax = $("pmax"), pPc = $("ppc");
 const pPacket = $("ppacket"), pPackMax = $("ppackmax"), pLast = $("plast");
 const pMut = $("pmut"), pMem = $("pmem"), pMemCount = $("pmemcount");
@@ -283,6 +283,8 @@ let acc = 0;
 let last = performance.now();
 let shownTick = -1;
 let paused = true;                    // the world starts frozen and waits for a key press
+let speed = 1;                        // ticks per frame interval: ×1, ×2, ×5, ×10
+speedEl.textContent = `×${speed}`;
 let started = false;
 
 // --- ticking with a rewind buffer ---------------------------------------------
@@ -307,7 +309,16 @@ function setPaused(v: boolean): void {
   hintEl.style.display = v && !started ? "" : "none";
 }
 
+// ×2 / ×5 / ×10: press the digit that names the speed, 0 means ×10.
+const SPEEDS: Record<string, number> = { Digit1: 1, Digit2: 2, Digit5: 5, Digit0: 10 };
+
 addEventListener("keydown", (e) => {
+  if (e.code in SPEEDS) {
+    e.preventDefault();
+    speed = SPEEDS[e.code];
+    speedEl.textContent = `×${speed}`;
+    return;
+  }
   if (e.code === "Space") {
     e.preventDefault();
     if (!RESPAWN && world.creatures.length === 0 && world.plants.length === 0) return;   // nothing left to run
@@ -336,7 +347,10 @@ function frame(now: number): void {
   acc = paused ? 0 : acc + (now - last);
   last = now;
   let guard = 0;                       // never freeze on a long tab switch
-  while (acc >= TICK_MS && guard++ < 5) { stepForward(); acc -= TICK_MS; }
+  while (acc >= TICK_MS && guard++ < 5) {
+    for (let i = 0; i < speed; i++) stepForward();
+    acc -= TICK_MS;
+  }
 
   draw(ctx, world, innerWidth, innerHeight, sel);
   if (world.tick !== shownTick) {
