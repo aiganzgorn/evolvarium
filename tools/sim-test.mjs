@@ -9,7 +9,7 @@ import { mulberry32 } from "../src/rng.ts";
 import { attachPoint, legTip } from "../src/mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX, JUMP_COST, USE_COST, LIGHT_MIN, LIGHT_MAX, ORG_BASE,
-  EAT_RATE, EAT_RANGE, PUSH_DIST,
+  EAT_RATE, EAT_RANGE, PUSH_DIST, PHOTO_GAIN, PHOTO_COST, EAT_COST, PUSH_COST, LEG_TURN_COST, LEG_HOLD_COST,
   LEG_LENGTH, LEG_STEP_DEG, LIGHT_PERIOD, LEG_MIN, LEG_MAX,
   BUSHES, ORGANIC_CELLS, ORGANIC_SIZE, SEED_SIZE, MAX_ORGANICS, SEED_NEIGHBOURS,
 } from "../src/config.ts";
@@ -82,10 +82,10 @@ assert.ok(random.filter(c => c === useCell(0)).length >= 3, "в случайно
 // --- photosynthesis: 2 energy at 100% light, so 1.5 at 75% --------------------
 const photo = p.mutations[0];
 const act = (self, mut, params, light, world = a) => mut.act({ self, world, light, params, packet: { energy: 0, last: null } });
-assert.equal(act(p, photo, [0, 0, 0, 0], 1), 2, "100% света — 2");
+assert.equal(act(p, photo, [0, 0, 0, 0], 1), PHOTO_GAIN, "100% света — полный доход");
 assert.equal(act(p, photo, [0, 0, 0, 0], 0), 0, "0% света — 0");
-assert.equal(act(p, photo, [0, 0, 0, 0], 0.75), 1.5, "75% света — 1.5");
-assert.equal(act(p, photo, [9, 9, 9, 9], 0.75), 1.5, "параметры фотосинтезу не мешают");
+assert.equal(act(p, photo, [0, 0, 0, 0], 0.75), PHOTO_GAIN * 0.75, "75% света — три четверти дохода");
+assert.equal(act(p, photo, [9, 9, 9, 9], 0.75), PHOTO_GAIN * 0.75, "параметры фотосинтезу не мешают");
 
 // --- leg: p1 picks the action, p2 the degrees --------------------------------
 const lw = createWorld(5);
@@ -170,7 +170,8 @@ mem[0] = useCell(0); mem[1] = useCell(0);                // two calls of photosy
 mem[MEM_CELLS - 1] = jumpCell(0);
 const x0 = w.creatures[0].x;
 for (let i = 0; i < MEM_CELLS; i++) stepWorld(w);
-const expected = START_ENERGY - 3 + 2 * bandAt(1, x0) + 2 * bandAt(2, x0);
+const expected = START_ENERGY - 2 * PHOTO_COST - JUMP_COST
+  + PHOTO_GAIN * bandAt(1, x0) + PHOTO_GAIN * bandAt(2, x0);
 assert.ok(near(w.creatures[0].brain.energy, expected, 1e-9),
   `два фотосинтеза и прыжок: ${w.creatures[0].brain.energy} вместо ${expected}`);
 assert.equal(w.creatures[0].brain.packet.energy, 0, "пакет опустошён на переходе");
@@ -179,7 +180,7 @@ const unknown = createWorld(1);
 unknown.creatures[0].brain.mem.fill(OP_REST);
 unknown.creatures[0].brain.mem[0] = useCell(55);
 stepWorld(unknown);
-assert.equal(unknown.creatures[0].brain.energy, START_ENERGY - USE_COST, "неизвестная мутация стоит энергии");
+assert.equal(unknown.creatures[0].brain.energy, START_ENERGY, "неизвестная мутация ничего не стоит и ничего не даёт");
 assert.equal(unknown.creatures[0].brain.packet.energy, 0, "и ничего не возвращает");
 
 const dying = createWorld(1);

@@ -1,6 +1,10 @@
 // Mutations: traits the brain can call. Pure logic only — visuals live in render.ts.
 import type { Creature, World } from "./sim.ts";
-import { W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD, EAT_RANGE, EAT_RATE, PUSH_DIST } from "./config.ts";
+import {
+  W, H, LEG_LENGTH, LEG_MAX, LEG_STEP_DEG, LEG_ATTACH, LEG_ATTACH_R, LEG_SPREAD,
+  EAT_RANGE, EAT_RATE, EAT_COST, PUSH_DIST, PUSH_COST, PHOTO_GAIN, PHOTO_COST,
+  LEG_TURN_COST, LEG_HOLD_COST,
+} from "./config.ts";
 
 export type Packet = { energy: number; last: { label: string; amount: number } | null };
 
@@ -25,8 +29,17 @@ export type Mutation = {
   id: string;          // also the visual key in render.ts
   label: string;
   hint: string;        // what the params mean, shown in the panel
+  cost?: number | ((params: number[]) => number);   // energy per call (default USE_COST)
   leg?: LegState;      // per-creature state, legs only
   act: (ctx: MutationContext) => number;   // result handed back to the brain
+};
+
+// Movement is cheap, eating is dear: a turn of a free leg costs nothing, a bite
+// costs extra. That is what makes walking worth it next to a shove.
+export const mutationCost = (m: Mutation | undefined, params: number[]): number => {
+  if (!m) return 0;
+  const c = m.cost;
+  return typeof c === "function" ? c(params) : c ?? PHOTO_COST;
 };
 
 // --- photosynthesis ----------------------------------------------------------
@@ -34,8 +47,9 @@ export function photosynthesis(): Mutation {
   return {
     id: "photosynthesis",
     label: "Фотосинтез",
-    hint: "параметры не используются",
-    act: ({ light }) => 2 * light,              // 2 energy at 100% light, 0 at 0%
+    hint: `доход ${PHOTO_GAIN} × свет, цена ${PHOTO_COST}`,
+    cost: PHOTO_COST,
+    act: ({ light }) => PHOTO_GAIN * light,     // 3 energy at 100% light, 0.3 at 10%
   };
 }
 
@@ -50,6 +64,8 @@ export function leg(side: -1 | 1 = -1): Mutation {
     id: "leg",
     label: side < 0 ? "Ножка левая" : "Ножка правая",
     hint: "p1: 01 влево, 02 вправо, 03 схватить, 04 отпустить · p2: градусы (0 → 12)",
+    // turning a free leg is free; touching the ground costs
+    cost: (params: number[]) => (params[0] === 3 || params[0] === 4 ? LEG_HOLD_COST : LEG_TURN_COST),
     leg: { angle: 0, grabbed: false, x: 0, y: 0, length: Math.min(LEG_LENGTH, LEG_MAX), attach: hinge },
     // state lives on `this`, so a copied mutation (rewind) keeps its own
     act({ self, params }) {
@@ -88,12 +104,14 @@ export function mouth(): Mutation {
   return {
     id: "mouth",
     label: "Рот",
-    hint: `кусает ближайший куст в радиусе ${EAT_RANGE}, до ${EAT_RATE} энергии`,
+    hint: `кусает куст, если его край в ${EAT_RANGE} ед. от тела, до ${EAT_RATE} энергии`,
+    cost: EAT_COST,
     act({ self, world }) {
       let best: World["organics"][number] | null = null;
       let bestD = Infinity;
       for (const o of world.organics) {
-        const d = Math.hypot(o.x - self.x, o.y - self.y) - o.size;
+        // gap between the bush rim and her own rim, not between centres
+        const d = Math.hypot(o.x - self.x, o.y - self.y) - o.size - self.size / 2;
         if (d <= EAT_RANGE && d < bestD) { best = o; bestD = d; }
       }
       if (!best) return 0;
@@ -111,7 +129,8 @@ export function push(): Mutation {
   return {
     id: "push",
     label: "Толчок",
-    hint: `сдвигает тело вперёд на p1 (по умолчанию ${PUSH_DIST})`,
+    hint: `сдвигает тело вперёд на p1 (по умолчанию ${PUSH_DIST}), цена ${PUSH_COST}`,
+    cost: PUSH_COST,
     act({ self, params }) {
       const dist = params[0] || PUSH_DIST;
       const r = self.size / 2;

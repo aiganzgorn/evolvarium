@@ -52,10 +52,18 @@ export const SEED_CROWD = 1.6;         // no seed if another bush is closer than
 export const SEED_NEIGHBOURS = 3;      // ...or if this many bushes already grow nearby
 export const SEED_NEIGHBOURS_R = 140;  // "nearby" means within this distance
 
+// photosynthesis and the rest of the mutation economy
+export const PHOTO_GAIN = 3;        // income = PHOTO_GAIN × light
+export const PHOTO_COST = 1;        // ...and one call costs this
+export const LEG_TURN_COST = 0;     // swinging a free leg is free
+export const LEG_HOLD_COST = 1;     // grabbing or releasing the ground costs
+
 // feeding and shoving
-export const EAT_RANGE = 30;        // how close a bush must be to take a bite
-export const EAT_RATE = 20;         // most energy one bite can take
+export const EAT_RANGE = 10;        // gap between her rim and the bush rim
+export const EAT_RATE = 8;          // most energy one bite can take
+export const EAT_COST = 2;          // a bite is work
 export const PUSH_DIST = 28;        // how far one shove moves the body
+export const PUSH_COST = 2;         // ...and a shove is work too
 
 // death
 export const ORG_BASE = 5;          // organic left behind = ORG_BASE + energy left

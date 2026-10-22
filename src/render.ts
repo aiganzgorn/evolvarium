@@ -1,5 +1,5 @@
 // Rendering only — reads the world, never mutates it.
-import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD } from "./config.ts";
+import { W, H, SIZE, LIGHT_MAX, LIGHT_BAND, LIGHT_PERIOD, EAT_RANGE } from "./config.ts";
 import type { Creature, Organic, World } from "./sim.ts";
 import { lightCenter } from "./sim.ts";
 import { genomeColor } from "./genome.ts";
@@ -24,8 +24,11 @@ export function draw(
   ctx.fillRect(0, 0, vw, vh);
   light(ctx, world, vw, vh, ox, s);
 
+  const me = world.creatures[0];
   for (const o of world.organics) {
-    organic(ctx, o, ox, oy, s, selected?.kind === "organic" && selected.id === o.id);
+    const inReach = !!me &&
+      Math.hypot(o.x - me.x, o.y - me.y) - o.size - me.size / 2 <= EAT_RANGE;
+    organic(ctx, o, ox, oy, s, selected?.kind === "organic" && selected.id === o.id, inReach);
   }
   for (const c of world.creatures) {
     blob(ctx, c, ox, oy, s, world.tick, selected?.kind === "creature" && selected.id === c.id);
@@ -53,34 +56,43 @@ function light(ctx: CanvasRenderingContext2D, world: World, vw: number, vh: numb
   ctx.fillRect(0, 0, vw, vh);
 }
 
-function organic(ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number, selected: boolean): void {
+function organic(
+  ctx: CanvasRenderingContext2D, o: Organic, ox: number, oy: number, s: number,
+  selected: boolean, inReach: boolean,
+): void {
   const cx = ox + o.x * s, cy = oy + o.y * s;
-  const r = Math.max(2, o.size * s);
+  const r = Math.max(2, o.size * s);   // exactly the eating radius: what you see is what she can bite
 
-  ctx.fillStyle = "rgba(120,220,150,0.16)";
-  ctx.beginPath(); ctx.arc(cx, cy, r * 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(120,220,150,0.12)";
+  ctx.beginPath(); ctx.arc(cx, cy, r * 1.25, 0, Math.PI * 2); ctx.fill();
+
+  // leaves stay inside the rim, so the drawn bush never lies about its edge
+  ctx.fillStyle = "rgba(88,186,116,0.85)";
+  ctx.beginPath(); ctx.arc(cx, cy + r * 0.2, r * 0.68, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(120,214,142,0.9)";
+  ctx.beginPath(); ctx.arc(cx - r * 0.45, cy - r * 0.1, r * 0.45, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.45, cy - r * 0.05, r * 0.48, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(196,248,206,0.85)";
+  ctx.beginPath(); ctx.arc(cx - r * 0.18, cy - r * 0.35, r * 0.26, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + r * 0.24, cy - r * 0.38, r * 0.2, 0, Math.PI * 2); ctx.fill();
+
+  // the edge itself: dim normally, gold when she is close enough to bite
+  ctx.strokeStyle = selected ? "rgba(255,215,110,0.9)"
+    : inReach ? "rgba(255,215,110,0.9)" : "rgba(150,235,170,0.45)";
+  ctx.lineWidth = inReach ? 2 : 1;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
 
   if (selected) {
-    ctx.strokeStyle = "rgba(255,215,110,0.75)";
+    ctx.strokeStyle = "rgba(255,215,110,0.4)";
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.55, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r + 6, 0, Math.PI * 2); ctx.stroke();
   }
 
-  // a little cluster of leaves, so a bush reads as a plant rather than a stain
-  ctx.fillStyle = "rgba(88,186,116,0.85)";
-  ctx.beginPath(); ctx.arc(cx, cy + r * 0.25, r * 0.8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(120,214,142,0.9)";
-  ctx.beginPath(); ctx.arc(cx - r * 0.55, cy - r * 0.15, r * 0.6, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + r * 0.55, cy - r * 0.1, r * 0.65, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = "rgba(196,248,206,0.85)";
-  ctx.beginPath(); ctx.arc(cx - r * 0.2, cy - r * 0.45, r * 0.34, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(cx + r * 0.3, cy - r * 0.5, r * 0.26, 0, Math.PI * 2); ctx.fill();
-
   ctx.strokeStyle = "rgba(74,120,80,0.9)";
-  ctx.lineWidth = Math.max(1, r * 0.16);
+  ctx.lineWidth = Math.max(1, r * 0.12);
   ctx.beginPath();
-  ctx.moveTo(cx, cy + r * 0.5);
-  ctx.lineTo(cx, cy + r * 1.05);
+  ctx.moveTo(cx, cy + r * 0.45);
+  ctx.lineTo(cx, cy + r * 0.95);
   ctx.stroke();
 }
 
@@ -105,6 +117,16 @@ function blob(ctx: CanvasRenderingContext2D, c: Creature, ox: number, oy: number
     ctx.ellipse(cx + k * r * 0.58, cy + r * 0.22, r * 0.22, r * 0.15, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  // her mouth's reach: the dashed circle is exactly the distance a bite can cover
+  ctx.save();
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = "rgba(255,215,110,0.35)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, (c.size / 2 + EAT_RANGE) * s, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 
   for (const m of c.mutations) drawMutation(ctx, m.id, cx, cy, r, tick, c.angle);
 

@@ -3,7 +3,7 @@
 import { mulberry32, type Rng } from "./rng.ts";
 import type { Genome } from "./genome.ts";
 import type { Mutation } from "./mutations.ts";
-import { photosynthesis, mouth, push, leg } from "./mutations.ts";
+import { photosynthesis, mouth, push, leg, mutationCost } from "./mutations.ts";
 import {
   W, H, SIZE, MEM_CELLS, START_ENERGY, HEAD_MAX, PACKET_MAX,
   JUMP_COST, USE_COST, ORG_BASE, BASE_GENOME,
@@ -292,11 +292,12 @@ export function stepWorld(world: World): void {
       pay(b, JUMP_COST);
       next = jumpTarget(cell) % MEM_CELLS;
     } else if (op === OP_USE) {
-      pay(b, USE_COST);
       const index = mutationOf(cell);
       const m = c.mutations[index];
+      const params = paramsOf(cell);
+      pay(b, mutationCost(m, params));
       const result = m
-        ? m.act({ self: c, world, light: lightAt(world, c.x), params: paramsOf(cell), packet: b.packet })
+        ? m.act({ self: c, world, light: lightAt(world, c.x), params, packet: b.packet })
         : 0;
       b.packet.energy = Math.min(PACKET_MAX, b.packet.energy + result);
       b.packet.last = { label: m ? m.label : `мутации ${index} нет`, amount: result };
