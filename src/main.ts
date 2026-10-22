@@ -8,7 +8,8 @@ import { mulberry32 } from "./rng.ts";
 import { draw, viewTransform, type Selection } from "./render.ts";
 import {
   TICK_HZ, MEM_CELLS, HEAD_MAX, PACKET_MAX, HISTORY_TICKS, W,
-  ORGANIC_MAX, ORGANIC_SIZE, ORGANIC_SEED_MIN,
+  ORGANIC_MAX, ORGANIC_SIZE, ORGANIC_SEED_MIN, ORGANIC_SEED_SHARE, SEED_ENERGY,
+  SEED_NEIGHBOURS, SEED_NEIGHBOURS_R,
 } from "./config.ts";
 
 const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -137,14 +138,17 @@ function paintPanel(): void {
       ? `${b.packet.last.label} ${b.packet.last.amount >= 0 ? "+" : ""}${fmt(b.packet.last.amount)}`
       : "—";
   }
+  const rows = ["psizerow", "pseedmin", "pseedshare", "pseedchild", "pseednear"];
+  for (const id of rows) $(id).hidden = !plant;
+  $("legend").textContent = creature
+    ? "2·NN — мутация NN · 1→NN — прыжок · · — отдых · клик по ячейке — правка"
+    : "2·00 — фотосинтез · семя — посадить семечко · 1→NN — прыжок · только просмотр";
   if (plant) {
-    const row = $("pmut");
-    row.replaceChildren();
-    row.hidden = false;
-    const size = document.createElement("div");
-    size.className = "mut";
-    size.textContent = `размер ${Math.round(plant.size)} / ${ORGANIC_SIZE} · семечко с ${ORGANIC_SEED_MIN}`;
-    row.append(size);
+    $("psize").textContent = `${Math.round(plant.size)} / ${ORGANIC_SIZE}`;
+    $("pseedminv").textContent = `${ORGANIC_SEED_MIN} · сейчас ${Math.round(plant.energy)}`;
+    $("pseedsharev").textContent = `${Math.round(ORGANIC_SEED_SHARE * 100)}% энергии`;
+    $("pseedchildv").textContent = `${Math.round(SEED_ENERGY * 100)}% от забранного`;
+    $("pseednearv").textContent = `${SEED_NEIGHBOURS} куста в ${SEED_NEIGHBOURS_R} ед.`;
   }
 
   buildCells(mem.length, !!creature);

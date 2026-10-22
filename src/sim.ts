@@ -137,14 +137,16 @@ export function randomMemory(rng: Rng): number[] {
   const mem = new Array<number>(MEM_CELLS).fill(OP_REST);
   for (let i = 0; i < MEM_CELLS; i++) {
     const r = rng();
-    if (r < 0.55) mem[i] = OP_REST;
-    else if (r < 0.75) mem[i] = useCell(0);                                  // photosynthesis
-    else if (r < 0.95) {
+    if (r < 0.50) mem[i] = OP_REST;
+    else if (r < 0.72) mem[i] = useCell(0);                                  // photosynthesis
+    else if (r < 0.86) {
       const which = 1 + Math.floor(rng() * 2);                               // leg 01 or 02
       const action = 1 + Math.floor(rng() * 4);                              // 01..04
       const degrees = 3 + Math.floor(rng() * 12);
       mem[i] = useCell(which, [action, degrees]);
-    } else mem[i] = jumpCell(Math.floor(rng() * MEM_CELLS));                  // jump anywhere
+    } else if (r < 0.93) mem[i] = useCell(3, [0, 0, 0, 0]);                   // mouth
+    else if (r < 0.98) mem[i] = useCell(4, [PUSH_DIST, 0, 0, 0]);             // push
+    else mem[i] = jumpCell(Math.floor(rng() * MEM_CELLS));                    // jump anywhere
   }
   mem[MEM_CELLS - 1] = jumpCell(0);                        // always come back around
   for (let i = 0; i < 3; i++) mem[i] = useCell(0);         // a bit of fuel to start with
